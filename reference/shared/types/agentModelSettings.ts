@@ -17,6 +17,8 @@ import {
   OPENAI_EFFORTS,
   OPENCODE_MODELS,
   OPENCODE_EFFORTS,
+  OLLAMA_MODELS,
+  OLLAMA_EFFORTS,
   isModelForProvider,
   isEffortForProvider,
 } from '../providers/models.js';
@@ -83,12 +85,17 @@ const OPENAI_SEED: { model: string; effort: string } = { model: 'gpt-5.5', effor
 export function defaultSettingForProvider(
   provider: Provider,
   firstOpenCodeModelId: string | null,
+  firstOllamaModelId?: string | null,
 ): AgentModelSetting | null {
   if (provider === 'anthropic') {
     return { provider, model: ANTHROPIC_SEED.model, effort: ANTHROPIC_SEED.effort };
   }
   if (provider === 'openai') {
     return { provider, model: OPENAI_SEED.model, effort: OPENAI_SEED.effort };
+  }
+  if (provider === 'ollama') {
+    if (!firstOllamaModelId) return null;
+    return { provider, model: firstOllamaModelId, effort: null };
   }
   // opencode: no static catalog — a live id is required to seed.
   if (!firstOpenCodeModelId) return null;
@@ -103,8 +110,9 @@ export function defaultSettingForProvider(
 export function buildSeedSettings(
   provider: Provider,
   firstOpenCodeModelId: string | null,
+  firstOllamaModelId?: string | null,
 ): AgentModelSettings | null {
-  const setting = defaultSettingForProvider(provider, firstOpenCodeModelId);
+  const setting = defaultSettingForProvider(provider, firstOpenCodeModelId, firstOllamaModelId);
   if (!setting) return null;
   const result = {} as AgentModelSettings;
   for (const agentType of AGENT_TYPES_WITH_SETTINGS) {
@@ -135,7 +143,8 @@ export function isValidAgentModelSetting(
   if (
     setting.provider !== 'anthropic' &&
     setting.provider !== 'openai' &&
-    setting.provider !== 'opencode'
+    setting.provider !== 'opencode' &&
+    setting.provider !== 'ollama'
   ) {
     return false;
   }
@@ -151,10 +160,12 @@ export const MODELS_FOR_UI = {
   anthropic: ANTHROPIC_MODELS,
   openai: OPENAI_MODELS,
   opencode: OPENCODE_MODELS,
+  ollama: OLLAMA_MODELS,
 } as const;
 
 export const EFFORTS_FOR_UI = {
   anthropic: ANTHROPIC_EFFORTS,
   openai: OPENAI_EFFORTS,
   opencode: OPENCODE_EFFORTS,
+  ollama: OLLAMA_EFFORTS,
 } as const;

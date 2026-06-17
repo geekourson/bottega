@@ -54,8 +54,8 @@ describe('shared/providers/models', () => {
       expect([...OPENCODE_EFFORTS]).toEqual([]);
     });
 
-    it('enumerates all three providers', () => {
-      expect([...PROVIDERS]).toEqual(['anthropic', 'openai', 'opencode']);
+    it('enumerates all providers', () => {
+      expect([...PROVIDERS]).toEqual(['anthropic', 'openai', 'opencode', 'ollama']);
     });
   });
 
@@ -81,10 +81,11 @@ describe('shared/providers/models', () => {
   });
 
   describe('type guards', () => {
-    it('isProvider accepts anthropic/openai/opencode and rejects bogus values', () => {
+    it('isProvider accepts anthropic/openai/opencode/ollama and rejects bogus values', () => {
       expect(isProvider('anthropic')).toBe(true);
       expect(isProvider('openai')).toBe(true);
       expect(isProvider('opencode')).toBe(true);
+      expect(isProvider('ollama')).toBe(true);
       expect(isProvider('claude')).toBe(false);
       expect(isProvider('')).toBe(false);
       expect(isProvider(undefined)).toBe(false);

@@ -12,10 +12,12 @@ import ApiKeyPanel from './ApiKeyPanel';
 import CodexAuthPanel from './CodexAuthPanel';
 import ClaudeAuthPanel from './ClaudeAuthPanel';
 import OpenCodeAuthPanel from './OpenCodeAuthPanel';
+import OllamaAuthPanel from './OllamaAuthPanel';
+import McpServersTab from './McpServersTab';
 import type { ProjectRow } from '../../shared/types/db';
 import type { ApiError } from '../../shared/api/_common';
 
-export type SettingsTab = 'tools' | 'appearance' | 'prompts' | 'agentModels' | 'account' | 'providers';
+export type SettingsTab = 'tools' | 'appearance' | 'prompts' | 'agentModels' | 'account' | 'providers' | 'mcp';
 type SaveStatus = 'success' | 'error' | null;
 
 export interface SettingsProps {
@@ -348,6 +350,17 @@ function Settings({
                 data-testid="settings-tab-providers"
               >
                 Providers
+              </button>
+              <button
+                onClick={() => setActiveTab('mcp')}
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'mcp'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+                data-testid="settings-tab-mcp"
+              >
+                MCP
               </button>
             </div>
           </div>
@@ -686,8 +699,7 @@ function Settings({
             )}
 
             {/* Providers Tab — Claude (Anthropic) + Codex (OpenAI) +
-                OpenCode (Zen) at the same level. Same panels render
-                inside the picker modal. */}
+                OpenCode (Zen) + Ollama (local) at the same level. */}
             {activeTab === 'providers' && (
               <div className="space-y-8">
                 <ClaudeAuthPanel />
@@ -695,8 +707,13 @@ function Settings({
                 <CodexAuthPanel />
                 <div className="border-t border-border" />
                 <OpenCodeAuthPanel />
+                <div className="border-t border-border" />
+                <OllamaAuthPanel />
               </div>
             )}
+
+            {/* MCP Tab */}
+            {activeTab === 'mcp' && <McpServersTab />}
 
             {/* Account Tab */}
             {activeTab === 'account' && (

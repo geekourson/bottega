@@ -11,11 +11,13 @@ import {
 import type { AgentType } from '../../shared/types/db';
 import type { Provider } from '../../shared/providers/types';
 import type { OpenCodeModelEntry } from '../../shared/api/openCodeAuth';
+import type { OllamaModelEntry } from '../../shared/api/ollamaAuth';
 
 export const PROVIDER_LABELS: Record<Provider, string> = {
   anthropic: 'Claude Code',
   openai: 'Codex',
   opencode: 'OpenCode',
+  ollama: 'Ollama',
 };
 
 // Labels for the two static providers. OpenCode model labels are NOT
@@ -49,22 +51,37 @@ export function buildModelOptions(
   provider: Provider,
   currentModel: string,
   openCodeModels: OpenCodeModelEntry[] | null,
+  ollamaModels?: OllamaModelEntry[] | null,
 ): Array<{ value: string; label: string }> {
-  if (provider !== 'opencode') {
-    return MODELS_FOR_UI[provider].map((m) => ({ value: m, label: MODEL_LABELS[m] ?? m }));
+  if (provider === 'opencode') {
+    const live = openCodeModels ?? [];
+    const options: Array<{ value: string; label: string }> =
+      live.length > 0
+        ? live.map((m) => ({
+            value: m.id,
+            label: m.status === 'deprecated' ? `${m.name} (deprecated)` : m.name,
+          }))
+        : [{ value: currentModel, label: currentModel }];
+    if (options.length > 0 && !options.some((o) => o.value === currentModel)) {
+      options.push({ value: currentModel, label: `${currentModel} (not in current Zen catalog)` });
+    }
+    return options;
   }
-  const live = openCodeModels ?? [];
-  const options: Array<{ value: string; label: string }> =
-    live.length > 0
-      ? live.map((m) => ({
-          value: m.id,
-          label: m.status === 'deprecated' ? `${m.name} (deprecated)` : m.name,
-        }))
-      : [{ value: currentModel, label: currentModel }];
-  if (options.length > 0 && !options.some((o) => o.value === currentModel)) {
-    options.push({ value: currentModel, label: `${currentModel} (not in current Zen catalog)` });
+  if (provider === 'ollama') {
+    const live = ollamaModels ?? [];
+    const options: Array<{ value: string; label: string }> =
+      live.length > 0
+        ? live.map((m) => ({ value: m.id, label: m.name + (m.size ? ` (${m.size})` : '') }))
+        : [{ value: currentModel, label: currentModel || 'No models installed' }];
+    if (options.length > 0 && currentModel && !options.some((o) => o.value === currentModel)) {
+      options.push({ value: currentModel, label: `${currentModel} (not installed)` });
+    }
+    return options;
   }
-  return options;
+  return (MODELS_FOR_UI[provider] as readonly string[]).map((m) => ({
+    value: m,
+    label: MODEL_LABELS[m] ?? m,
+  }));
 }
 
 interface AgentModelSettingRowProps {
@@ -75,6 +92,8 @@ interface AgentModelSettingRowProps {
   connectedProviders: Provider[];
   openCodeModels: OpenCodeModelEntry[] | null;
   isLoadingOpenCodeModels: boolean;
+  ollamaModels: OllamaModelEntry[] | null;
+  isLoadingOllamaModels: boolean;
   disabled: boolean;
   onChange: (agent: AgentType, patch: Partial<AgentModelSetting>) => void;
 }
@@ -86,6 +105,8 @@ function AgentModelSettingRow({
   connectedProviders,
   openCodeModels,
   isLoadingOpenCodeModels,
+  ollamaModels,
+  isLoadingOllamaModels,
   disabled,
   onChange,
 }: AgentModelSettingRowProps) {
@@ -95,7 +116,7 @@ function AgentModelSettingRow({
   const providerOptions: Provider[] = Array.from(
     new Set<Provider>([providerKey, ...connectedProviders]),
   );
-  const modelOptions = buildModelOptions(providerKey, setting.model, openCodeModels);
+  const modelOptions = buildModelOptions(providerKey, setting.model, openCodeModels, ollamaModels);
 
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 text-sm py-3 border-b border-border last:border-b-0">
@@ -123,7 +144,11 @@ function AgentModelSettingRow({
         <select
           value={setting.model}
           onChange={(e) => onChange(agentType, { model: e.target.value })}
-          disabled={disabled || (providerKey === 'opencode' && isLoadingOpenCodeModels)}
+          disabled={
+            disabled ||
+            (providerKey === 'opencode' && isLoadingOpenCodeModels) ||
+            (providerKey === 'ollama' && isLoadingOllamaModels)
+          }
           data-testid={`agent-model-select-${agentType}`}
           className="flex-1 min-w-0 sm:flex-none bg-background border border-border rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
         >
@@ -133,11 +158,12 @@ function AgentModelSettingRow({
             </option>
           ))}
         </select>
-        {providerKey === 'opencode' && isLoadingOpenCodeModels && (
+        {((providerKey === 'opencode' && isLoadingOpenCodeModels) ||
+          (providerKey === 'ollama' && isLoadingOllamaModels)) && (
           <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
         )}
       </label>
-      {EFFORTS_FOR_UI[providerKey].length > 0 && (
+      {(EFFORTS_FOR_UI[providerKey] as readonly string[]).length > 0 && (
         <label className="flex items-center gap-2 w-full sm:w-auto">
           <span className="text-muted-foreground w-20 sm:w-auto shrink-0">Effort</span>
           <select
@@ -147,7 +173,7 @@ function AgentModelSettingRow({
             data-testid={`agent-effort-select-${agentType}`}
             className="flex-1 min-w-0 sm:flex-none bg-background border border-border rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
           >
-            {EFFORTS_FOR_UI[providerKey].map((e) => (
+            {(EFFORTS_FOR_UI[providerKey] as readonly string[]).map((e) => (
               <option key={e} value={e}>
                 {EFFORT_LABELS[e] ?? e}
               </option>

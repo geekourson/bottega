@@ -61,6 +61,7 @@ export function injectVideoRecording(
 export async function waitForMcpServers(
   queryInstance: QueryWithMcp,
   timeout: number = 30000,
+  requiredNames?: string[],
 ): Promise<void> {
   const startTime = Date.now();
   const delays = [500, 1000, 2000, 3000, 3000, 3000, 3000, 3000, 3000, 3000];
@@ -76,9 +77,16 @@ export async function waitForMcpServers(
       continue;
     }
 
-    const pending = statuses.filter((s) => s.status === 'pending');
+    if (statuses.length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+      continue;
+    }
 
-    if (pending.length === 0) {
+    const pending = statuses.filter((s) => s.status === 'pending');
+    const missing =
+      requiredNames?.filter((name) => !statuses.some((s) => s.name === name)) ?? [];
+
+    if (pending.length === 0 && missing.length === 0) {
       const failed = statuses.filter((s) => s.status === 'failed');
       for (const server of failed) {
         try {

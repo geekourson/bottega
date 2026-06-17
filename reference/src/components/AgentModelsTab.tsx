@@ -17,6 +17,7 @@ import {
 import type { AgentType } from '../../shared/types/db';
 import type { Provider } from '../../shared/providers/types';
 import type { OpenCodeModelEntry } from '../../shared/api/openCodeAuth';
+import type { OllamaModelEntry } from '../../shared/api/ollamaAuth';
 
 const AGENT_LABELS: Record<AgentType, string> = {
   planification: 'Planning',
@@ -34,6 +35,8 @@ function AgentModelsTab() {
   const [connected, setConnected] = useState<Provider[]>([]);
   const [openCodeModels, setOpenCodeModels] = useState<OpenCodeModelEntry[] | null>(null);
   const [isLoadingOpenCodeModels, setLoadingOpenCodeModels] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState<OllamaModelEntry[] | null>(null);
+  const [isLoadingOllamaModels, setLoadingOllamaModels] = useState(false);
   const [isLoading, setLoading] = useState(true);
   const [isSaving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,16 +46,27 @@ function AgentModelsTab() {
     setLoadingOpenCodeModels(true);
     try {
       const res = await api.openCodeAuth.models();
-      if (!res.ok) {
-        setOpenCodeModels([]);
-        return;
-      }
+      if (!res.ok) { setOpenCodeModels([]); return; }
       const body = await res.json();
       setOpenCodeModels(body.models);
     } catch {
       setOpenCodeModels([]);
     } finally {
       setLoadingOpenCodeModels(false);
+    }
+  }, []);
+
+  const loadOllamaModels = useCallback(async () => {
+    setLoadingOllamaModels(true);
+    try {
+      const res = await api.ollamaAuth.models();
+      if (!res.ok) { setOllamaModels([]); return; }
+      const body = await res.json();
+      setOllamaModels(body.models);
+    } catch {
+      setOllamaModels([]);
+    } finally {
+      setLoadingOllamaModels(false);
     }
   }, []);
 
@@ -68,6 +82,7 @@ function AgentModelsTab() {
           const body = await providersRes.json();
           setConnected(body.connected);
           if (body.connected.includes('opencode')) void loadOpenCodeModels();
+          if (body.connected.includes('ollama')) void loadOllamaModels();
         }
         if (settingsRes.ok) {
           const body = await settingsRes.json();
@@ -98,15 +113,26 @@ function AgentModelsTab() {
       if (patch.provider && patch.provider !== current.provider) {
         const p = patch.provider;
         const nextModel =
-          p === 'opencode' ? (openCodeModels?.[0]?.id ?? null) : MODELS_FOR_UI[p][0]!;
+          p === 'opencode'
+            ? (openCodeModels?.[0]?.id ?? null)
+            : p === 'ollama'
+              ? (ollamaModels?.[0]?.id ?? null)
+              : ((MODELS_FOR_UI[p] as readonly string[])[0] ?? null);
         if (nextModel === null) {
-          setError(
-            'OpenCode catalog is still loading or no Zen key is configured. ' +
-              'Connect OpenCode in Settings → Providers, then try again.',
-          );
+          if (p === 'ollama') {
+            setError(
+              'No Ollama models found. Make sure Ollama is running and you have pulled at least one model ' +
+                '(`ollama pull llama3.2`). Connect Ollama in Settings → Providers, then try again.',
+            );
+          } else {
+            setError(
+              'OpenCode catalog is still loading or no Zen key is configured. ' +
+                'Connect OpenCode in Settings → Providers, then try again.',
+            );
+          }
           return;
         }
-        merged = { provider: p, model: nextModel, effort: EFFORTS_FOR_UI[p][0] ?? null };
+        merged = { provider: p, model: nextModel, effort: ((EFFORTS_FOR_UI[p] as readonly string[])[0] ?? null) };
       } else {
         merged = { ...current, ...patch };
       }
@@ -134,7 +160,7 @@ function AgentModelsTab() {
         setSaving(false);
       }
     },
-    [settings, openCodeModels],
+    [settings, openCodeModels, ollamaModels],
   );
 
   if (isLoading) {
@@ -189,6 +215,8 @@ function AgentModelsTab() {
             connectedProviders={connected}
             openCodeModels={openCodeModels}
             isLoadingOpenCodeModels={isLoadingOpenCodeModels}
+            ollamaModels={ollamaModels}
+            isLoadingOllamaModels={isLoadingOllamaModels}
             disabled={isSaving}
             onChange={updateAgentSetting}
           />

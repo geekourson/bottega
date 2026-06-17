@@ -18,6 +18,7 @@ import type { ThinkingAccumulator } from './thinkingPatcher.js';
 import type { ContextUsageTracker } from '../contextUsageTracker.js';
 import type { BroadcastFn } from '@shared/websocket/messages';
 import { isClaudeAuthError } from './retryOn401.js';
+import { sqliteSessionStore } from '../sqliteSessionStore.js';
 
 interface SDKIteratorMessage {
   type: string;
@@ -80,6 +81,14 @@ export interface RunStreamingLoopParams {
    * completed, chaining) still runs.
    */
   onResult?: (() => void) | undefined;
+  /**
+   * When set, messages are manually mirrored to sqliteSessionStore under this
+   * projectKey. Required for Ollama conversations: the Claude CLI subprocess
+   * does not create JSONL transcript files for non-Anthropic sessions, so the
+   * SDK's automatic sessionStore mirror never fires. Derived from the CWD by
+   * replacing every '/' with '-'.
+   */
+  ollamaProjectKey?: string | undefined;
 }
 
 export async function runStreamingLoop({
@@ -92,12 +101,15 @@ export async function runStreamingLoop({
   onSessionId,
   broadcastClaudeStatus = false,
   onResult,
+  ollamaProjectKey,
 }: RunStreamingLoopParams): Promise<{ claudeSessionId: string | null; authError: boolean }> {
   let claudeSessionId: string | null = initialSessionId;
   let firstSessionIdSeen = initialSessionId !== null;
   let sessionCreatedBroadcast = false;
   let resultObserved = false;
   let authError = false;
+  // Messages accumulated before the first session_id arrives (Ollama only).
+  const ollamaPending: SDKIteratorMessage[] = [];
 
   try {
     for await (const sdkMessage of queryInstance) {
@@ -148,6 +160,28 @@ export async function runStreamingLoop({
         claudeSessionId = sdkMessage.session_id;
         if (onSessionId) {
           await onSessionId(claudeSessionId);
+        }
+      }
+
+      // Ollama manual mirror: the Claude CLI does not create JSONL transcript
+      // files for non-Anthropic sessions, so the SDK's automatic sessionStore
+      // mirror never fires. We replicate it here message-by-message.
+      if (ollamaProjectKey) {
+        if (claudeSessionId) {
+          // Flush any messages that arrived before the session_id was known.
+          if (ollamaPending.length > 0) {
+            await sqliteSessionStore.append(
+              { projectKey: ollamaProjectKey, sessionId: claudeSessionId, provider: 'ollama' },
+              ollamaPending as never[],
+            );
+            ollamaPending.length = 0;
+          }
+          await sqliteSessionStore.append(
+            { projectKey: ollamaProjectKey, sessionId: claudeSessionId, provider: 'ollama' },
+            [sdkMessage as never],
+          );
+        } else {
+          ollamaPending.push(sdkMessage);
         }
       }
 

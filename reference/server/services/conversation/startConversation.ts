@@ -5,7 +5,7 @@
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { promises as fs } from 'fs';
-import { conversationsDb, tasksDb } from '../../database/db.js';
+import { conversationsDb, tasksDb, agentRunsDb } from '../../database/db.js';
 import { resolveResumeModelEffort } from '../agentModelSettings.js';
 import { getWorktreeProjectPath, worktreeExists } from '../worktree.js';
 import { generateConversationTitle } from '../titleGenerator.js';
@@ -41,6 +41,8 @@ import {
   startOpenCodeConversation,
   sendOpenCodeMessage,
 } from './startOpenCodeConversation.js';
+import { buildOllamaSdkEnv } from '../ollamaCredentials.js';
+import { parseOllamaModel } from '../providers/ollama/index.js';
 import type { ConversationOptions, StreamingContext } from './types.js';
 
 /**
@@ -109,18 +111,24 @@ export async function startConversation(
     projectPath = getWorktreeProjectPath(projectPath, taskId, taskWithProject.subproject_path);
   }
 
-  await ensureFreshClaudeToken(userId);
-  const claudeEnv = buildClaudeSdkEnv(userId);
+  const isOllama = options.provider === 'ollama';
+  let sdkModel = model;
+  let sdkEnv: Record<string, string | undefined>;
+  if (isOllama) {
+    sdkModel = parseOllamaModel(model);
+    sdkEnv = buildOllamaSdkEnv(userId);
+  } else {
+    await ensureFreshClaudeToken(userId);
+    sdkEnv = buildClaudeSdkEnv(userId);
+  }
 
   let conversationId = options.conversationId;
   if (!conversationId) {
-    // This is the Anthropic branch (the dispatch at the top routed
-    // openai/opencode away), so the row is stamped 'anthropic' with the
-    // explicit model+effort the turn will run on.
-    const conversation = conversationsDb.create(taskId, 'anthropic', model, effort);
+    const providerForRow = isOllama ? 'ollama' : 'anthropic';
+    const conversation = conversationsDb.create(taskId, providerForRow, model, effort);
     conversationId = conversation.id;
     console.log(
-      `[ConversationAdapter] Created conversation ${conversationId} for task ${taskId} (provider=anthropic, model=${model})`,
+      `[ConversationAdapter] Created conversation ${conversationId} for task ${taskId} (provider=${providerForRow}, model=${model})`,
     );
   }
 
@@ -130,10 +138,10 @@ export async function startConversation(
     cwd: projectPath,
     permissionMode,
     customSystemPrompt,
-    model,
+    model: sdkModel,
     effort,
     disallowedTools: normalizedOptions.disallowedTools,
-    env: claudeEnv,
+    env: sdkEnv,
     canUseTool: buildCanUseTool({
       conversationId,
       broadcastFn,
@@ -141,6 +149,14 @@ export async function startConversation(
       broadcastToTaskSubscribersFn,
     }),
   });
+
+  // Ollama's Anthropic-compatible API does not support extended thinking or
+  // partial-message streaming — sending these params causes a 400 error that
+  // kills the subprocess before a session_id is ever emitted.
+  if (isOllama) {
+    delete (sdkOptions as Record<string, unknown>).thinking;
+    delete (sdkOptions as Record<string, unknown>).includePartialMessages;
+  }
 
   let mcpServers = await loadMcpConfig(projectPath);
   if (mcpServers && videoConfig) {
@@ -293,6 +309,10 @@ export async function startConversation(
           // loop never returns. runStreamingLoop swallows the resulting
           // abort error so we still reach the success path below.
           onResult: () => abortController.abort(),
+          // Ollama: mirror messages to sqliteSessionStore manually because
+          // the Claude CLI does not create JSONL files for non-Anthropic
+          // sessions (no server-side session to anchor the file name to).
+          ollamaProjectKey: isOllama ? projectPath.replace(/\//g, '-') : undefined,
         });
 
         // In-band 401: the SDK delivered the auth failure as data instead
@@ -303,6 +323,46 @@ export async function startConversation(
           throw new Error(
             'Claude Code returned an error result: Failed to authenticate. API Error: 401 Invalid authentication credentials',
           );
+        }
+
+        // If the subprocess exited without ever emitting a session_id,
+        // the provider failed before starting (e.g. Ollama not running,
+        // model not found, bad env). Mark the agent run failed immediately
+        // and reject the outer promise rather than silently completing.
+        if (!ctx.claudeSessionId) {
+          const linkedRun = agentRunsDb.getByConversationId(conversationId);
+          if (linkedRun && linkedRun.status === 'running') {
+            agentRunsDb.updateStatus(linkedRun.id, 'failed');
+            if (broadcastToTaskSubscribersFn && taskId) {
+              broadcastToTaskSubscribersFn(taskId, {
+                type: 'agent-run-updated',
+                agentRun: {
+                  id: linkedRun.id,
+                  status: 'failed',
+                  agent_type: linkedRun.agent_type as never,
+                  conversation_id: conversationId,
+                },
+              });
+            }
+          }
+          if (broadcastFn) {
+            broadcastFn(conversationId, {
+              type: 'claude-error',
+              error:
+                isOllama
+                  ? 'Ollama subprocess exited without starting a session. Check that Ollama is running (`ollama serve`) and the selected model exists (`ollama list`).'
+                  : 'The LLM subprocess exited without starting a session.',
+            });
+          }
+          clearTimeout(timeout);
+          reject(
+            new Error(
+              isOllama
+                ? 'Ollama not reachable or model not found — check `ollama serve` and `ollama list`'
+                : 'LLM subprocess exited without establishing a session',
+            ),
+          );
+          return;
         }
 
         if (ctx.claudeSessionId) {
@@ -479,8 +539,16 @@ export async function sendMessage(
   }
 
   const abortController = new AbortController();
-  await ensureFreshClaudeToken(userId);
-  const claudeEnv = buildClaudeSdkEnv(userId);
+  const isOllamaResume = resolvedProvider === 'ollama';
+  let resumeSdkModel = resumeModel;
+  let resumeEnv: Record<string, string | undefined>;
+  if (isOllamaResume) {
+    resumeSdkModel = parseOllamaModel(resumeModel);
+    resumeEnv = buildOllamaSdkEnv(userId);
+  } else {
+    await ensureFreshClaudeToken(userId);
+    resumeEnv = buildClaudeSdkEnv(userId);
+  }
 
   // Resume reads transcripts from sqliteSessionStore.load() — no per-user
   // CLAUDE_CONFIG_DIR materialization required.
@@ -488,16 +556,23 @@ export async function sendMessage(
     cwd: projectPath,
     sessionId: claudeSessionId,
     permissionMode,
-    env: claudeEnv,
+    env: resumeEnv,
     canUseTool: buildCanUseTool({
       conversationId,
       broadcastFn,
       taskId,
       broadcastToTaskSubscribersFn,
     }),
-    model: resumeModel,
+    model: resumeSdkModel,
     effort: resumeEffort,
   });
+
+  // Ollama's Anthropic-compatible API does not support extended thinking or
+  // partial-message streaming — sending these params causes a 400 error.
+  if (isOllamaResume) {
+    delete (sdkOptions as Record<string, unknown>).thinking;
+    delete (sdkOptions as Record<string, unknown>).includePartialMessages;
+  }
 
   const mcpServers = await loadMcpConfig(projectPath);
   if (mcpServers) {
@@ -607,6 +682,8 @@ export async function sendMessage(
       // subprocess after `result` so a leftover background bash can't pin
       // the iterator open. runStreamingLoop swallows the abort error.
       onResult: () => abortController.abort(),
+      // Ollama: same manual mirror as startConversation.
+      ollamaProjectKey: isOllamaResume ? projectPath.replace(/\//g, '-') : undefined,
     });
 
     // In-band 401: see matching comment in startConversation.

@@ -16,11 +16,13 @@ import { PROVIDERS } from '../../shared/providers/models';
 import { useConnectedProviders } from '../contexts/ConnectedProvidersContext';
 import type { Provider } from '../../shared/providers/types';
 import type { OpenCodeModelEntry } from '../../shared/api/openCodeAuth';
+import type { OllamaModelEntry } from '../../shared/api/ollamaAuth';
 
 export const PROVIDER_LABELS: Record<Provider, string> = {
   anthropic: 'Claude',
   openai: 'OpenAI',
   opencode: 'OpenCode',
+  ollama: 'Ollama',
 };
 
 // Static labels for the two enum-backed providers. OpenCode labels come from
@@ -33,15 +35,19 @@ const MODEL_LABELS: Record<string, string> = {
   'gpt-5.4-mini': 'GPT-5.4 mini',
 };
 
-/** First selectable model for a provider, given the (maybe-unloaded) Zen catalog. */
+/** First selectable model for a provider, given dynamic catalogs for OpenCode and Ollama. */
 export function firstModelFor(
   p: Provider,
   openCodeModels: OpenCodeModelEntry[] | null,
+  ollamaModels?: OllamaModelEntry[] | null,
 ): string {
   if (p === 'opencode') {
     return openCodeModels && openCodeModels.length > 0 ? openCodeModels[0]!.id : '';
   }
-  return MODELS_FOR_UI[p][0] ?? '';
+  if (p === 'ollama') {
+    return ollamaModels && ollamaModels.length > 0 ? ollamaModels[0]!.id : '';
+  }
+  return (MODELS_FOR_UI[p] as readonly string[])[0] ?? '';
 }
 
 /**
@@ -94,6 +100,9 @@ export function useProviderModelSelection(): ProviderModelSelection {
   // Live Zen catalog: null = not yet fetched, [] = fetched-but-none (no key).
   const [openCodeModels, setOpenCodeModels] = useState<OpenCodeModelEntry[] | null>(null);
   const [loadingOpenCodeModels, setLoadingOpenCodeModels] = useState(false);
+  // Live Ollama model list: null = not yet fetched, [] = Ollama not running.
+  const [ollamaModels, setOllamaModels] = useState<OllamaModelEntry[] | null>(null);
+  const [loadingOllamaModels, setLoadingOllamaModels] = useState(false);
 
   // Best-effort fetch of the per-user OpenCode catalog. Returns [] (not an
   // error) when the user has no Zen key, mirroring the settings UI.
@@ -101,13 +110,9 @@ export function useProviderModelSelection(): ProviderModelSelection {
     setLoadingOpenCodeModels(true);
     try {
       const res = await api.openCodeAuth.models();
-      if (!res.ok) {
-        setOpenCodeModels([]);
-        return;
-      }
+      if (!res.ok) { setOpenCodeModels([]); return; }
       const body = await res.json();
       setOpenCodeModels(body.models);
-      // Only auto-select if the user hasn't already picked something.
       setModel((prev) => (prev === '' && body.models.length > 0 ? body.models[0]!.id : prev));
     } catch {
       setOpenCodeModels([]);
@@ -116,8 +121,24 @@ export function useProviderModelSelection(): ProviderModelSelection {
     }
   }, []);
 
-  // Switch provider + reset the model to that provider's first option. For
-  // OpenCode this kicks off the (lazy, per-user) catalog fetch on first use.
+  const loadOllamaModels = useCallback(async () => {
+    setLoadingOllamaModels(true);
+    try {
+      const res = await api.ollamaAuth.models();
+      if (!res.ok) { setOllamaModels([]); return; }
+      const body = await res.json();
+      setOllamaModels(body.models);
+      setModel((prev) => (prev === '' && body.models.length > 0 ? body.models[0]!.id : prev));
+    } catch {
+      setOllamaModels([]);
+    } finally {
+      setLoadingOllamaModels(false);
+    }
+  }, []);
+
+  // Switch provider + reset the model to that provider's first option.
+  // For dynamic-catalog providers (OpenCode, Ollama) this kicks off the
+  // lazy catalog fetch on first use.
   const applyProvider = useCallback(
     (next: Provider) => {
       setProvider(next);
@@ -128,11 +149,18 @@ export function useProviderModelSelection(): ProviderModelSelection {
         } else {
           setModel(firstModelFor('opencode', openCodeModels));
         }
+      } else if (next === 'ollama') {
+        if (ollamaModels === null) {
+          setModel('');
+          void loadOllamaModels();
+        } else {
+          setModel(firstModelFor('ollama', null, ollamaModels));
+        }
       } else {
-        setModel(firstModelFor(next, openCodeModels));
+        setModel(firstModelFor(next, openCodeModels, ollamaModels));
       }
     },
-    [openCodeModels, loadOpenCodeModels],
+    [openCodeModels, ollamaModels, loadOpenCodeModels, loadOllamaModels],
   );
 
   const handleProviderChange = useCallback(
@@ -156,21 +184,32 @@ export function useProviderModelSelection(): ProviderModelSelection {
     } else if (preferred === 'opencode' && openCodeModels === null && !loadingOpenCodeModels) {
       setModel('');
       void loadOpenCodeModels();
+    } else if (preferred === 'ollama' && ollamaModels === null && !loadingOllamaModels) {
+      setModel('');
+      void loadOllamaModels();
     }
-  }, [connected, provider, openCodeModels, loadingOpenCodeModels, applyProvider, loadOpenCodeModels]);
+  }, [connected, provider, openCodeModels, loadingOpenCodeModels, ollamaModels, loadingOllamaModels, applyProvider, loadOpenCodeModels, loadOllamaModels]);
 
-  // Options for the model dropdown — static enum for anthropic/openai, the
-  // live Zen catalog for opencode (empty until fetched or when no key).
-  const modelOptions = useMemo<Array<{ value: string; label: string }>>(
-    () =>
-      provider === 'opencode'
-        ? (openCodeModels ?? []).map((m) => ({
-            value: m.id,
-            label: m.status === 'deprecated' ? `${m.name} (deprecated)` : m.name,
-          }))
-        : MODELS_FOR_UI[provider].map((m) => ({ value: m, label: MODEL_LABELS[m] ?? m })),
-    [provider, openCodeModels],
-  );
+  // Options for the model dropdown — static enum for anthropic/openai,
+  // live catalog for opencode and ollama (empty until fetched).
+  const modelOptions = useMemo<Array<{ value: string; label: string }>>(() => {
+    if (provider === 'opencode') {
+      return (openCodeModels ?? []).map((m) => ({
+        value: m.id,
+        label: m.status === 'deprecated' ? `${m.name} (deprecated)` : m.name,
+      }));
+    }
+    if (provider === 'ollama') {
+      return (ollamaModels ?? []).map((m) => ({
+        value: m.id,
+        label: m.name + (m.size ? ` (${m.size})` : ''),
+      }));
+    }
+    return (MODELS_FOR_UI[provider] as readonly string[]).map((m) => ({
+      value: m,
+      label: MODEL_LABELS[m] ?? m,
+    }));
+  }, [provider, openCodeModels, ollamaModels]);
 
   // `reset` must keep a STABLE identity: callers wire it into open/close
   // effects (e.g. `[isOpen, resetProviderModel]`). If its identity changed when

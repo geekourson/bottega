@@ -96,6 +96,7 @@ import type {
   DeleteAgentRunResponse,
   StartPendingAgentsResponse,
 } from '../../shared/api/agent-runs';
+import type { McpConfiguredServer, McpProbeResult, AddMcpServerRequest, AddMcpServerResponse } from '../../shared/api/mcp';
 import type {
   ListAdminUsersResponse,
   CreateAdminUserRequest,
@@ -132,6 +133,12 @@ import type {
   OpenCodeModelsResponse,
   SetOpenCodeKeyResponse,
 } from '../../shared/api/openCodeAuth';
+import type {
+  ClearOllamaUrlResponse,
+  OllamaAuthStatusResponse,
+  OllamaModelsResponse,
+  SetOllamaUrlResponse,
+} from '../../shared/api/ollamaAuth';
 import type {
   ConnectedProvidersResponse,
   GetUserAgentModelSettingsResponse,
@@ -283,6 +290,22 @@ export const api = {
       }),
     models: (): TypedFetch<OpenCodeModelsResponse> =>
       authenticatedFetch<OpenCodeModelsResponse>('/api/opencode-auth/models'),
+  },
+
+  ollamaAuth: {
+    status: (): TypedFetch<OllamaAuthStatusResponse> =>
+      authenticatedFetch<OllamaAuthStatusResponse>('/api/ollama-auth/status'),
+    setUrl: (url: string): TypedFetch<SetOllamaUrlResponse> =>
+      authenticatedFetch<SetOllamaUrlResponse>('/api/ollama-auth/url', {
+        method: 'PUT',
+        body: JSON.stringify({ url }),
+      }),
+    clear: (): TypedFetch<ClearOllamaUrlResponse> =>
+      authenticatedFetch<ClearOllamaUrlResponse>('/api/ollama-auth/url', {
+        method: 'DELETE',
+      }),
+    models: (): TypedFetch<OllamaModelsResponse> =>
+      authenticatedFetch<OllamaModelsResponse>('/api/ollama-auth/models'),
   },
 
   codexAuth: {
@@ -629,6 +652,26 @@ export const api = {
           ? `/api/pending-questions?projectId=${projectId}`
           : '/api/pending-questions',
       ),
+  },
+
+  // MCP server inspection: configured list (cheap) + live connection probe.
+  mcp: {
+    listServers: (projectId?: number): TypedFetch<{ servers: McpConfiguredServer[] }> =>
+      authenticatedFetch<{ servers: McpConfiguredServer[] }>(
+        typeof projectId === 'number'
+          ? `/api/mcp/servers?projectId=${projectId}`
+          : '/api/mcp/servers',
+      ),
+    addServer: (payload: AddMcpServerRequest): TypedFetch<AddMcpServerResponse> =>
+      authenticatedFetch<AddMcpServerResponse>('/api/mcp/servers', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    test: (projectId?: number): TypedFetch<{ results: McpProbeResult[] }> =>
+      authenticatedFetch<{ results: McpProbeResult[] }>('/api/mcp/test', {
+        method: 'POST',
+        body: JSON.stringify(typeof projectId === 'number' ? { projectId } : {}),
+      }),
   },
 
   // Voice transcription — handler in server/index.js, opaque pass-through

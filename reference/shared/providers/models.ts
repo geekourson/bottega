@@ -22,6 +22,18 @@
 
 import type { Provider } from './types.js';
 
+// Ollama models are installed locally by the user (`ollama pull <name>`).
+// Like OpenCode, the catalog is dynamic — we fetch it live from the Ollama
+// API at /api/tags. The persisted form is `ollama/<modelName>` (e.g.
+// `ollama/llama3.2`, `ollama/qwen2.5-coder:32b`) so rows survive model
+// renames without ambiguity. No effort dimension — Ollama models don't
+// expose a reasoning-effort knob.
+export const OLLAMA_MODELS = [] as const;
+export type OllamaModel = `ollama/${string}`;
+
+export const OLLAMA_EFFORTS = [] as const;
+export type OllamaEffort = never;
+
 export const ANTHROPIC_MODELS = ['sonnet', 'opus'] as const;
 export type AnthropicModel = (typeof ANTHROPIC_MODELS)[number];
 
@@ -60,7 +72,7 @@ export type OpenCodeModel = `opencode/${string}`;
 export const OPENCODE_EFFORTS = [] as const;
 export type OpenCodeEffort = never;
 
-export const PROVIDERS = ['anthropic', 'openai', 'opencode'] as const;
+export const PROVIDERS = ['anthropic', 'openai', 'opencode', 'ollama'] as const;
 
 /**
  * Return the model list for a provider. Used by the settings UI and
@@ -70,12 +82,14 @@ export const PROVIDERS = ['anthropic', 'openai', 'opencode'] as const;
 export function modelsForProvider(provider: Provider): readonly string[] {
   if (provider === 'anthropic') return ANTHROPIC_MODELS;
   if (provider === 'openai') return OPENAI_MODELS;
+  if (provider === 'ollama') return OLLAMA_MODELS;
   return OPENCODE_MODELS;
 }
 
 export function effortsForProvider(provider: Provider): readonly string[] {
   if (provider === 'anthropic') return ANTHROPIC_EFFORTS;
   if (provider === 'openai') return OPENAI_EFFORTS;
+  if (provider === 'ollama') return OLLAMA_EFFORTS;
   return OPENCODE_EFFORTS;
 }
 
@@ -113,17 +127,29 @@ export function isOpenCodeEffort(value: unknown): value is OpenCodeEffort {
   return false;
 }
 
+// Prefix-only check — the Ollama catalog is whatever models the user has
+// pulled locally (`ollama pull <name>`). The list is fetched live from the
+// Ollama API at /api/tags. Anything past `ollama/` is opaque to Bottega.
+export function isOllamaModel(value: unknown): value is OllamaModel {
+  return typeof value === 'string' && value.startsWith('ollama/') && value.length > 'ollama/'.length;
+}
+
+export function isOllamaEffort(value: unknown): value is OllamaEffort {
+  // Ollama has no reasoning-effort knob.
+  void value;
+  return false;
+}
+
 /** True when `model` is a valid model for `provider`. */
 export function isModelForProvider(
   provider: Provider,
   model: unknown,
 ): model is string {
   if (typeof model !== 'string') return false;
-  // OpenCode is the special case: the Zen catalog is owned upstream
-  // and fetched live, so we only enforce the `opencode/<id>` prefix
-  // shape. Anthropic and OpenAI use a static enum so we still gate
-  // against the canonical list.
+  // OpenCode and Ollama use dynamic catalogs fetched live; enforce only
+  // the prefix shape. Anthropic and OpenAI use static enums.
   if (provider === 'opencode') return isOpenCodeModel(model);
+  if (provider === 'ollama') return isOllamaModel(model);
   return modelsForProvider(provider).includes(model);
 }
 

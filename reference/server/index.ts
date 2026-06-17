@@ -53,6 +53,7 @@ import cors from 'cors';
 import { promises as fsPromises } from 'fs';
 
 import { getAllActiveStreamingSessions, getAwaitingQuestionTaskIds } from './services/conversationAdapter.js';
+import { listConfiguredMcpServers, probeMcpServers, addConfiguredMcpServer } from './services/mcpStatus.js';
 import {
   dispatchClientMessage,
   cleanupClientSubscriptions,
@@ -64,6 +65,7 @@ import accountRoutes from './routes/account.js';
 import claudeAuthRoutes from './routes/claudeAuth.js';
 import codexAuthRoutes from './routes/codexAuth.js';
 import openCodeAuthRoutes from './routes/openCodeAuth.js';
+import ollamaAuthRoutes from './routes/ollamaAuth.js';
 import commandsRoutes from './routes/commands.js';
 import projectsRoutes from './routes/projects.js';
 import tasksRoutes from './routes/tasks.js';
@@ -87,6 +89,9 @@ import {
   REFRESHED_TOKEN_HEADER,
 } from './middleware/auth.js';
 import type { WebSocketUser } from './middleware/auth.js';
+import { validateBody } from './middleware/validate.js';
+import { AddMcpServerBodySchema, TestMcpServersBodySchema } from '../shared/schemas/mcp.js';
+import type { AddMcpServerBody } from '../shared/schemas/mcp.js';
 
 interface AugmentedIncomingMessage extends http.IncomingMessage {
   user?: WebSocketUser;
@@ -192,6 +197,7 @@ app.use('/api/account', accountRoutes);
 app.use('/api/claude-auth', authenticateToken, claudeAuthRoutes);
 app.use('/api/codex-auth', authenticateToken, codexAuthRoutes);
 app.use('/api/opencode-auth', authenticateToken, openCodeAuthRoutes);
+app.use('/api/ollama-auth', authenticateToken, ollamaAuthRoutes);
 
 app.use('/api/commands', authenticateToken, commandsRoutes);
 
@@ -226,6 +232,117 @@ app.get('/api/pending-questions', authenticateToken, (req: Request, res: Respons
   const taskIds = getAwaitingQuestionTaskIds(req.user?.id, projectId);
   res.json({ taskIds });
 });
+
+// Resolve an optional ?projectId / body.projectId to the project's repo path
+// (the cwd used to load per-project MCP config). Returns undefined for the
+// global view, or null if the project exists but the caller can't access it.
+function resolveMcpCwd(
+  rawProjectId: unknown,
+  userId: number,
+): string | undefined | null {
+  if (rawProjectId === undefined || rawProjectId === null || rawProjectId === '') {
+    return undefined;
+  }
+  const projectId = Number(rawProjectId);
+  if (!Number.isInteger(projectId)) return null;
+  const project = getProject(projectId, userId);
+  if (!project) return null;
+  return project.repo_folder_path;
+}
+
+// List MCP servers configured in ~/.claude.json (global + optional project).
+app.get('/api/mcp/servers', authenticateToken, async (req: Request, res: Response) => {
+  const cwd = resolveMcpCwd(req.query.projectId, req.user!.id);
+  if (cwd === null) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  try {
+    const servers = await listConfiguredMcpServers(cwd);
+    res.json({ servers });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[MCP] Failed to list configured servers:', message);
+    res.status(500).json({ error: 'Failed to read MCP configuration' });
+  }
+});
+
+// Add an MCP server to ~/.claude.json (global or per-project scope).
+app.post(
+  '/api/mcp/servers',
+  authenticateToken,
+  validateBody(AddMcpServerBodySchema),
+  async (req: Request, res: Response) => {
+    const body = req.validated!.body as AddMcpServerBody;
+    let cwd: string | undefined;
+    if (body.scope === 'project') {
+      const resolved = resolveMcpCwd(body.projectId, req.user!.id);
+      if (resolved === null) {
+        res.status(404).json({ error: 'Project not found' });
+        return;
+      }
+      cwd = resolved;
+    }
+
+    const config: Record<string, unknown> =
+      body.transport === 'stdio'
+        ? {
+            command: body.command,
+            ...(body.args?.length ? { args: body.args } : {}),
+            ...(body.env && Object.keys(body.env).length > 0 ? { env: body.env } : {}),
+          }
+        : {
+            url: body.url,
+            transport: 'http',
+            ...(body.headers && Object.keys(body.headers).length > 0 ? { headers: body.headers } : {}),
+          };
+
+    try {
+      const server = await addConfiguredMcpServer({
+        name: body.name,
+        scope: body.scope,
+        cwd,
+        config,
+      });
+      res.status(201).json({ server });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('already exists')) {
+        res.status(409).json({ error: message });
+        return;
+      }
+      if (message.includes('not valid JSON')) {
+        res.status(500).json({ error: message });
+        return;
+      }
+      console.error('[MCP] Failed to add server:', message);
+      res.status(500).json({ error: 'Failed to write MCP configuration' });
+    }
+  },
+);
+
+// Probe live MCP connection status by launching a throwaway SDK query.
+app.post(
+  '/api/mcp/test',
+  authenticateToken,
+  validateBody(TestMcpServersBodySchema),
+  async (req: Request, res: Response) => {
+    const { projectId } = req.validated!.body as { projectId?: number };
+    const cwd = resolveMcpCwd(projectId, req.user!.id);
+    if (cwd === null) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+    try {
+      const results = await probeMcpServers(req.user!.id, cwd);
+      res.json({ results });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[MCP] Probe failed:', message);
+      res.status(500).json({ error: `MCP probe failed: ${message}` });
+    }
+  },
+);
 
 app.use(express.static(path.join(__dirname, '../public')));
 

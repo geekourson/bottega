@@ -14,6 +14,17 @@
 import type { Provider, ProviderCapabilities } from './types.js';
 
 export const CAPABILITIES_BY_PROVIDER: Record<Provider, ProviderCapabilities> = {
+  ollama: {
+    // Ollama uses the Claude Code SDK pointed at a local Anthropic-compatible
+    // API. The local models don't support Claude-specific extensions
+    // (AskUserQuestion tool, thinking deltas, per-tool context breakdown,
+    // MCP server config, or image attachments) in v1.
+    supportsAskUserQuestion: false,
+    supportsThinkingDelta: false,
+    supportsContextUsageBreakdown: false,
+    supportsMcpServers: false,
+    supportsImages: false,
+  },
   anthropic: {
     supportsAskUserQuestion: true,
     supportsThinkingDelta: true,

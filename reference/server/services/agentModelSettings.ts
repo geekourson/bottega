@@ -20,6 +20,7 @@ import {
 } from '../database/db.js';
 import { getCredentialStore } from './credentials/registry.js';
 import { listOpenCodeModels } from './providers/opencode/index.js';
+import { listOllamaModels } from './ollamaCredentials.js';
 import {
   AGENT_TYPES_WITH_SETTINGS,
   isValidAgentModelSetting,
@@ -95,7 +96,7 @@ export function saveAgentModelSettings(userId: number, settings: AgentModelSetti
 }
 
 // Highest-priority connected provider wins when seeding a new user.
-const SEED_PROVIDER_PRIORITY: readonly Provider[] = ['anthropic', 'openai', 'opencode'];
+const SEED_PROVIDER_PRIORITY: readonly Provider[] = ['anthropic', 'openai', 'opencode', 'ollama'];
 
 /**
  * Seed a user's agent settings from their first connected provider, if they
@@ -132,7 +133,18 @@ export async function ensureUserAgentModelSettings(userId: number): Promise<bool
     if (!firstOpenCodeModelId) return false;
   }
 
-  const seed = buildSeedSettings(chosen, firstOpenCodeModelId);
+  let firstOllamaModelId: string | null = null;
+  if (chosen === 'ollama') {
+    try {
+      const models = await listOllamaModels(userId);
+      firstOllamaModelId = models[0]?.id ?? null;
+    } catch {
+      firstOllamaModelId = null;
+    }
+    if (!firstOllamaModelId) return false;
+  }
+
+  const seed = buildSeedSettings(chosen, firstOpenCodeModelId, firstOllamaModelId);
   if (!seed) return false;
 
   saveAgentModelSettings(userId, seed);
