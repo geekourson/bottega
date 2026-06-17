@@ -8,6 +8,7 @@ import {
   buildClaudeSpawnEnv,
   ClaudeCredentialsError,
   clearClaudeOAuthToken,
+  ensureFreshClaudeToken,
   getClaudeAuthStatus,
   getQueryProcessPid,
   prepareClaudeConfigDir,
@@ -15,6 +16,7 @@ import {
   resolveClaudeConfigDir,
   resolveClaudeOAuthTokenPath,
   validateClaudeCredentials,
+  writeClaudeOAuthCredentials,
   writeClaudeOAuthToken
 } from './claudeCredentials.js';
 
@@ -192,5 +194,44 @@ describe('claudeCredentials', () => {
   it('reads SDK query process pid when the SDK exposes one', () => {
     expect(getQueryProcessPid({ transport: { process: { pid: 1234 } } })).toBe(1234);
     expect(getQueryProcessPid({})).toBe(null);
+  });
+
+  describe('JSON credential format', () => {
+    it('writeClaudeOAuthCredentials persists JSON with refresh token and reads back', () => {
+      const tokenPath = resolveClaudeOAuthTokenPath(42);
+      writeClaudeOAuthCredentials(42, {
+        accessToken: 'sk-ant-oat01-json-access',
+        refreshToken: 'sk-ant-ort01-json-refresh',
+        expiresAt: 9999999999000,
+      });
+      expect(fs.statSync(tokenPath).mode & 0o777).toBe(0o600);
+      const result = readClaudeOAuthToken(42);
+      expect(result.token).toBe('sk-ant-oat01-json-access');
+    });
+
+    it('readClaudeOAuthToken reads legacy plain-string files transparently', () => {
+      writeClaudeOAuthToken(42, 'sk-ant-oat01-legacy');
+      expect(readClaudeOAuthToken(42).token).toBe('sk-ant-oat01-legacy');
+    });
+
+    it('writeClaudeOAuthCredentials refuses empty accessToken', () => {
+      expect(() => writeClaudeOAuthCredentials(42, { accessToken: '' })).toThrow(/empty/);
+    });
+
+    it('ensureFreshClaudeToken skips when no refresh token is stored', async () => {
+      writeClaudeOAuthToken(42, 'sk-ant-oat01-no-refresh');
+      // Should not throw even though token has no expiry info
+      await expect(ensureFreshClaudeToken(42)).resolves.toBeUndefined();
+    });
+
+    it('ensureFreshClaudeToken skips when token is not near expiry', async () => {
+      writeClaudeOAuthCredentials(42, {
+        accessToken: 'sk-ant-oat01-fresh',
+        refreshToken: 'sk-ant-ort01-refresh',
+        expiresAt: Date.now() + 60 * 60 * 1000, // 1 hour from now
+      });
+      // Should not throw or attempt refresh
+      await expect(ensureFreshClaudeToken(42)).resolves.toBeUndefined();
+    });
   });
 });

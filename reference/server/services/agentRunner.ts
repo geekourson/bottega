@@ -24,6 +24,7 @@ import {
   generatePrAgentCommentMessage,
   generatePrAgentReviewMessage,
   generateYoloMessage,
+  generatePoMessage,
 } from '../constants/agentPrompts.js';
 import { loadAgentModelSettings } from './agentModelSettings.js';
 import type { AgentRunRow, CreatedConversation } from '../database/db.js';
@@ -122,6 +123,12 @@ export async function startAgentRun(
       message = await generateYoloMessage(taskDocPath, taskId, yoloPrUrl);
       break;
     }
+    case 'po':
+      message = await generatePoMessage(
+        taskWithProject.project_id,
+        taskWithProject.repo_folder_path,
+      );
+      break;
     default:
       throw new Error(`Unknown agent type: ${agentType}`);
   }

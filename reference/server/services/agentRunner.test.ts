@@ -311,7 +311,8 @@ describe('agentRunner', () => {
         refinement: { provider: 'anthropic', model: 'opus', effort: 'high' },
         review: { provider: 'anthropic', model: 'opus', effort: 'high' },
         pr: { provider: 'anthropic', model: 'opus', effort: 'high' },
-        yolo: { provider: 'anthropic', model: 'opus', effort: 'high' }
+        yolo: { provider: 'anthropic', model: 'opus', effort: 'high' },
+        po: { provider: 'anthropic', model: 'opus', effort: 'high' },
       });
 
       await startAgentRun(1, 'planification');
@@ -333,7 +334,8 @@ describe('agentRunner', () => {
         refinement: { provider: 'anthropic', model: 'opus', effort: 'high' },
         review: { provider: 'anthropic', model: 'opus', effort: 'high' },
         pr: { provider: 'anthropic', model: 'opus', effort: 'high' },
-        yolo: { provider: 'anthropic', model: 'opus', effort: 'high' }
+        yolo: { provider: 'anthropic', model: 'opus', effort: 'high' },
+        po: { provider: 'anthropic', model: 'opus', effort: 'high' },
       });
 
       await startAgentRun(1, 'planification');

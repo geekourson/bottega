@@ -4,6 +4,18 @@ import path from 'path';
 
 const DEFAULT_CLAUDE_CONFIG_ROOT = path.join(os.homedir(), '.config', 'bottega', 'users');
 const TOKEN_FILE_NAME = 'oauth_token';
+
+// Claude's public OAuth client — same value the CLI uses.
+const CLAUDE_OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+const CLAUDE_TOKEN_ENDPOINT = 'https://platform.claude.com/v1/oauth/token';
+// Proactively refresh when fewer than 5 minutes remain.
+const TOKEN_REFRESH_AHEAD_MS = 5 * 60 * 1000;
+
+export interface ClaudeOAuthCredentials {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: number;
+}
 // Per https://code.claude.com/docs/en/authentication#authentication-precedence
 // these env vars take precedence over CLAUDE_CODE_OAUTH_TOKEN. We strip them
 // from any env we hand the SDK or a spawned `claude` so the per-user token
@@ -110,19 +122,45 @@ export interface ReadClaudeTokenResult {
   tokenPath: string;
 }
 
-export function readClaudeOAuthToken(
+function parseCredentialsFile(content: string): ClaudeOAuthCredentials {
+  const trimmed = content.trim();
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      if (typeof parsed.accessToken === 'string' && parsed.accessToken) {
+        return {
+          accessToken: parsed.accessToken,
+          refreshToken: typeof parsed.refreshToken === 'string' ? parsed.refreshToken : undefined,
+          expiresAt: typeof parsed.expiresAt === 'number' ? parsed.expiresAt : undefined,
+        };
+      }
+    } catch {
+      // fall through to plain-string path
+    }
+  }
+  return { accessToken: trimmed };
+}
+
+function readClaudeOAuthCredentials(
   userId: number | string | undefined,
-): ReadClaudeTokenResult {
+): ClaudeOAuthCredentials & { tokenPath: string } {
   const tokenPath = resolveClaudeOAuthTokenPath(userId);
   validateTokenFileSecurity(userId, tokenPath);
 
-  const token = fs.readFileSync(tokenPath, 'utf8').trim();
-  if (!token) {
+  const content = fs.readFileSync(tokenPath, 'utf8');
+  if (!content.trim()) {
     throw new ClaudeCredentialsError(
       `Claude OAuth token file is empty for user ${userId}: ${tokenPath}`,
     );
   }
-  return { token, tokenPath };
+  return { ...parseCredentialsFile(content), tokenPath };
+}
+
+export function readClaudeOAuthToken(
+  userId: number | string | undefined,
+): ReadClaudeTokenResult {
+  const { accessToken, tokenPath } = readClaudeOAuthCredentials(userId);
+  return { token: accessToken, tokenPath };
 }
 
 export function writeClaudeOAuthToken(
@@ -139,6 +177,105 @@ export function writeClaudeOAuthToken(
   fs.writeFileSync(tokenPath, token.trim(), { mode: 0o600 });
   fs.chmodSync(tokenPath, 0o600);
   return tokenPath;
+}
+
+export function writeClaudeOAuthCredentials(
+  userId: number | string | undefined,
+  creds: ClaudeOAuthCredentials,
+): string {
+  if (!creds.accessToken.trim()) {
+    throw new ClaudeCredentialsError(
+      `Refusing to persist empty Claude OAuth token for user ${userId}`,
+    );
+  }
+  ensureUserDir(userId);
+  const tokenPath = resolveClaudeOAuthTokenPath(userId);
+  fs.writeFileSync(tokenPath, JSON.stringify(creds), { mode: 0o600 });
+  fs.chmodSync(tokenPath, 0o600);
+  return tokenPath;
+}
+
+export async function refreshClaudeOAuthToken(
+  userId: number | string | undefined,
+): Promise<string> {
+  const creds = readClaudeOAuthCredentials(userId);
+  if (!creds.refreshToken) {
+    throw new ClaudeCredentialsError(
+      `No refresh token for user ${userId}. Re-authenticate via Settings → Connect Claude.`,
+    );
+  }
+
+  // Matches the Claude CLI: JSON body, includes the inference scope.
+  const response = await fetch(CLAUDE_TOKEN_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'refresh_token',
+      refresh_token: creds.refreshToken,
+      client_id: CLAUDE_OAUTH_CLIENT_ID,
+      scope: 'user:inference',
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new ClaudeCredentialsError(
+      `OAuth token refresh failed for user ${userId}: HTTP ${response.status} ${body.slice(0, 200)}`,
+    );
+  }
+
+  const data = (await response.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    expires_at?: number;
+  };
+
+  if (!data.access_token) {
+    throw new ClaudeCredentialsError(
+      `OAuth token refresh response missing access_token for user ${userId}`,
+    );
+  }
+
+  const newCreds: ClaudeOAuthCredentials = {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token ?? creds.refreshToken,
+    expiresAt: data.expires_at
+      ? data.expires_at * 1000
+      : data.expires_in
+        ? Date.now() + data.expires_in * 1000
+        : creds.expiresAt,
+  };
+
+  writeClaudeOAuthCredentials(userId, newCreds);
+  console.log(`[ClaudeCredentials] Token refreshed for user ${userId}`);
+  return newCreds.accessToken;
+}
+
+export async function ensureFreshClaudeToken(
+  userId: number | string | undefined,
+): Promise<void> {
+  let creds: ClaudeOAuthCredentials;
+  try {
+    creds = readClaudeOAuthCredentials(userId);
+  } catch {
+    return;
+  }
+
+  if (!creds.expiresAt || !creds.refreshToken) return;
+
+  const timeUntilExpiry = creds.expiresAt - Date.now();
+  if (timeUntilExpiry > TOKEN_REFRESH_AHEAD_MS) return;
+
+  console.log(
+    `[ClaudeCredentials] Token for user ${userId} expires in ${Math.round(timeUntilExpiry / 1000)}s — refreshing`,
+  );
+  try {
+    await refreshClaudeOAuthToken(userId);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn(`[ClaudeCredentials] Proactive token refresh failed for user ${userId}: ${msg}`);
+  }
 }
 
 export function clearClaudeOAuthToken(userId: number | string | undefined): boolean {

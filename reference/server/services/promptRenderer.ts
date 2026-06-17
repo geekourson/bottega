@@ -113,6 +113,13 @@ const PROMPT_DEFINITIONS: PromptDefinition[] = [
     file: 'plan-template.md',
     variables: [],
   },
+  {
+    name: 'po',
+    label: 'PO Session',
+    kind: 'prompt',
+    file: 'po.md',
+    variables: ['projectId', 'repoPath', 'existingTasks', 'createTaskScriptPath'],
+  },
 ];
 
 const PROMPT_BY_NAME = new Map(PROMPT_DEFINITIONS.map((p) => [p.name, p]));

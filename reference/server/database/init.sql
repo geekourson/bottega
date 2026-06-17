@@ -113,12 +113,12 @@ CREATE INDEX IF NOT EXISTS idx_conversations_task_id ON conversations(task_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_claude_id ON conversations(claude_conversation_id);
 
 -- Task Agent Runs table - Tracks automated agent runs for tasks
--- Agent types: 'planification', 'implementation', 'refinement', 'review', 'pr', 'yolo'
+-- Agent types: 'planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po'
 -- Status: 'pending', 'running', 'completed', 'failed', 'blocked'
 CREATE TABLE IF NOT EXISTS task_agent_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL,
-    agent_type TEXT NOT NULL CHECK(agent_type IN ('planification', 'implementation', 'refinement', 'review', 'pr', 'yolo')),
+    agent_type TEXT NOT NULL CHECK(agent_type IN ('planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po')),
     status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed', 'blocked')),
     conversation_id INTEGER,
     -- Provider used for this run; diagnostics only — runtime always reads

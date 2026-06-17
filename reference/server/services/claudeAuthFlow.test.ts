@@ -1,275 +1,223 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  buildClaudeLoginEnv,
-  getClaudeAuthStatus,
-  prepareClaudeConfigDir,
-  writeClaudeOAuthToken
-} from './claudeCredentials.js';
-import {
   cancelClaudeAuthLogin,
   clearClaudeAuthLoginSessions,
   ClaudeAuthLoginError,
   completeClaudeAuthLogin,
   getActiveClaudeAuthLogin,
-  startClaudeAuthLogin
+  startClaudeAuthLogin,
 } from './claudeAuthFlow.js';
 
-// --- node-pty mock -----------------------------------------------------------
-
-type OnDataCb = (chunk: string) => void;
-type OnExitCb = (e: { exitCode: number | undefined; signal: string | undefined }) => void;
-
-interface MockPty {
-  pid: number;
-  onData: ReturnType<typeof vi.fn>;
-  onExit: ReturnType<typeof vi.fn>;
-  write: ReturnType<typeof vi.fn>;
-  kill: ReturnType<typeof vi.fn>;
-  // helpers for tests
-  _emitData: (chunk: string) => void;
-  _emitExit: (exitCode?: number, signal?: string) => void;
-}
-
-const ptySpawnMock = vi.hoisted(() => vi.fn());
-
-vi.mock('node-pty', () => ({
-  spawn: ptySpawnMock,
-}));
-
 vi.mock('./claudeCredentials.js', () => ({
-  prepareClaudeConfigDir: vi.fn((userId) => ({
-    claudeConfigDir: `/home/test/.config/bottega/users/${userId}/.claude`
-  })),
-  buildClaudeLoginEnv: vi.fn((userId) => ({
-    PATH: '/usr/bin',
-    HOME: '/home/test',
-    CLAUDE_CONFIG_DIR: `/home/test/.config/bottega/users/${userId}/.claude`
-  })),
-  writeClaudeOAuthToken: vi.fn(),
+  writeClaudeOAuthCredentials: vi.fn(),
   getClaudeAuthStatus: vi.fn().mockResolvedValue({
     authenticated: true,
     status: 'authenticated',
-    tokenFingerprint: 'abcdef'
-  })
+    tokenFingerprint: 'abcdef',
+  }),
 }));
 
-function createMockPty(pid = 1234): MockPty {
-  let dataCb: OnDataCb | null = null;
-  let exitCb: OnExitCb | null = null;
+// Capture the fetch mock so tests can control it
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
 
-  const pty: MockPty = {
-    pid,
-    onData: vi.fn((cb: OnDataCb) => { dataCb = cb; }),
-    onExit: vi.fn((cb: OnExitCb) => { exitCb = cb; }),
-    write: vi.fn(),
-    kill: vi.fn(),
-    _emitData: (chunk) => dataCb?.(chunk),
-    _emitExit: (exitCode, signal) => exitCb?.({ exitCode, signal }),
-  };
-  return pty;
+function mockTokenResponse(overrides: Record<string, unknown> = {}): void {
+  mockFetch.mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({
+      access_token: 'sk-ant-oat01-test-token',
+      refresh_token: 'sk-ant-ort01-test-refresh',
+      expires_in: 31536000,
+      ...overrides,
+    }),
+    text: async () => '',
+  });
 }
 
-// -----------------------------------------------------------------------------
+function mockTokenError(status = 400, body = 'invalid_grant'): void {
+  mockFetch.mockResolvedValueOnce({
+    ok: false,
+    status,
+    text: async () => body,
+    json: async () => ({ error: body }),
+  });
+}
 
-describe('claudeAuthFlow', () => {
+describe('claudeAuthFlow (PKCE direct)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    ptySpawnMock.mockImplementation(() => createMockPty());
   });
 
   afterEach(() => {
     clearClaudeAuthLoginSessions();
   });
 
-  it('starts claude setup-token with a per-user login env and returns the auth URL', async () => {
-    const child = createMockPty(4567);
-    ptySpawnMock.mockReturnValue(child);
+  describe('startClaudeAuthLogin', () => {
+    it('returns an auth URL with correct PKCE params', async () => {
+      const login = await startClaudeAuthLogin(42);
 
-    const startPromise = startClaudeAuthLogin(42, { ttlMs: 60000, urlWaitMs: 1000 });
-    child._emitData('Visit: https://platform.claude.com/oauth/authorize?state=abc to continue');
+      expect(login.loginSessionId).toEqual(expect.any(String));
+      expect(login.authUrl).toMatch(/^https:\/\/claude\.com\/cai\/oauth\/authorize/);
+      expect(login.authUrl).toContain('code=true');
+      expect(login.authUrl).toContain('client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e');
+      expect(login.authUrl).toContain('response_type=code');
+      expect(login.authUrl).toContain('code_challenge_method=S256');
+      expect(login.authUrl).toContain('code_challenge=');
+      expect(login.authUrl).toContain('state=');
+      expect(login.startedAt).toEqual(expect.any(String));
+      expect(login.expiresAt).toEqual(expect.any(String));
+    });
 
-    const login = await startPromise;
+    it('each call produces a unique loginSessionId, codeChallenge and state', async () => {
+      const a = await startClaudeAuthLogin(42, { ttlMs: 60000 });
+      const b = await startClaudeAuthLogin(43, { ttlMs: 60000 });
 
-    expect(prepareClaudeConfigDir).toHaveBeenCalledWith(42);
-    expect(buildClaudeLoginEnv).toHaveBeenCalledWith(42);
-    expect(ptySpawnMock).toHaveBeenCalledWith(
-      expect.stringContaining('claude'),
-      ['setup-token'],
-      expect.objectContaining({
-        env: expect.objectContaining({
-          CLAUDE_CONFIG_DIR: '/home/test/.config/bottega/users/42/.claude'
+      expect(a.loginSessionId).not.toBe(b.loginSessionId);
+      const urlA = new URL(a.authUrl!);
+      const urlB = new URL(b.authUrl!);
+      expect(urlA.searchParams.get('code_challenge')).not.toBe(
+        urlB.searchParams.get('code_challenge'),
+      );
+      expect(urlA.searchParams.get('state')).not.toBe(urlB.searchParams.get('state'));
+    });
+
+    it('cancels any previous active session for the same user', async () => {
+      const first = await startClaudeAuthLogin(42);
+      const second = await startClaudeAuthLogin(42);
+
+      expect(first.loginSessionId).not.toBe(second.loginSessionId);
+      const active = getActiveClaudeAuthLogin(42);
+      expect(active?.loginSessionId).toBe(second.loginSessionId);
+    });
+
+    it('rejects invalid user IDs', async () => {
+      await expect(startClaudeAuthLogin(0 as unknown as number)).rejects.toThrow(
+        ClaudeAuthLoginError,
+      );
+    });
+  });
+
+  describe('getActiveClaudeAuthLogin', () => {
+    it('returns the active session for the user', async () => {
+      const login = await startClaudeAuthLogin(42);
+      const active = getActiveClaudeAuthLogin(42);
+
+      expect(active?.loginSessionId).toBe(login.loginSessionId);
+      expect(active?.authUrl).toBe(login.authUrl);
+    });
+
+    it('returns null when no session is active', () => {
+      expect(getActiveClaudeAuthLogin(99)).toBeNull();
+    });
+  });
+
+  describe('cancelClaudeAuthLogin', () => {
+    it('removes the active session and returns true', async () => {
+      await startClaudeAuthLogin(42);
+      expect(cancelClaudeAuthLogin(42)).toBe(true);
+      expect(getActiveClaudeAuthLogin(42)).toBeNull();
+    });
+
+    it('returns false when no session exists', () => {
+      expect(cancelClaudeAuthLogin(99)).toBe(false);
+    });
+  });
+
+  // The pasted code is `authorizationCode#state`; the state must match the one
+  // embedded in the authorize URL for that login session.
+  function stateOf(authUrl: string | null): string {
+    return new URL(authUrl!).searchParams.get('state') as string;
+  }
+
+  describe('completeClaudeAuthLogin', () => {
+    it('exchanges the code (JSON body, code#state) for tokens and persists them', async () => {
+      const { writeClaudeOAuthCredentials } = await import('./claudeCredentials.js');
+      const login = await startClaudeAuthLogin(42);
+      mockTokenResponse();
+
+      const status = await completeClaudeAuthLogin(
+        42,
+        login.loginSessionId,
+        `auth-code-123#${stateOf(login.authUrl)}`,
+      );
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://platform.claude.com/v1/oauth/token',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
         }),
-      })
-    );
-    expect(login.authUrl).toBe('https://platform.claude.com/oauth/authorize?state=abc');
-    expect(login.loginSessionId).toEqual(expect.any(String));
-  });
-
-  it('reassembles an OAuth URL that the CLI hard-wrapped across 80-col lines', async () => {
-    const child = createMockPty(4567);
-    ptySpawnMock.mockReturnValue(child);
-
-    const startPromise = startClaudeAuthLogin(42, { ttlMs: 60000, urlWaitMs: 1000 });
-    child._emitData(
-      'Use the url below to sign in (c to copy)\r\r\n\r\r\n' +
-        'https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88\r\r\n',
-    );
-    child._emitData(
-      'ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.co\r\r\n' +
-        'm%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=abc123&code_ch\r\r\n' +
-        'allenge_method=S256&state=xyz789\r\r\n\r\r\nPaste code here if prompted >\r\r\n',
-    );
-
-    const login = await startPromise;
-    expect(login.authUrl).toBe(
-      'https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=abc123&code_challenge_method=S256&state=xyz789',
-    );
-  });
-
-  it('does not capture a still-incomplete URL that is missing its state param', async () => {
-    const child = createMockPty(4567);
-    ptySpawnMock.mockReturnValue(child);
-
-    const startPromise = startClaudeAuthLogin(42, { ttlMs: 60000, urlWaitMs: 50 });
-    child._emitData(
-      'https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88',
-    );
-
-    await expect(startPromise).rejects.toThrow(/did not produce a login URL/i);
-  });
-
-  it('cancel-and-replaces an active login process for the same user', async () => {
-    const firstChild = createMockPty(1111);
-    const secondChild = createMockPty(2222);
-    ptySpawnMock.mockReturnValueOnce(firstChild).mockReturnValueOnce(secondChild);
-
-    const firstStart = startClaudeAuthLogin(42, { ttlMs: 60000, urlWaitMs: 1000 });
-    firstChild._emitData('https://platform.claude.com/oauth/authorize?state=first');
-    await firstStart;
-
-    const secondStart = startClaudeAuthLogin(42, { ttlMs: 60000, urlWaitMs: 1000 });
-    secondChild._emitData('https://platform.claude.com/oauth/authorize?state=second');
-    const secondLogin = await secondStart;
-
-    expect(firstChild.kill).toHaveBeenCalledWith('SIGTERM');
-    expect(secondLogin.authUrl).toBe('https://platform.claude.com/oauth/authorize?state=second');
-    expect(getActiveClaudeAuthLogin(42)!.loginSessionId).toBe(secondLogin.loginSessionId);
-  });
-
-  it('captures the token from output (TUI lingers), kills the process, and persists', async () => {
-    const child = createMockPty(4567);
-    ptySpawnMock.mockReturnValue(child);
-
-    const startPromise = startClaudeAuthLogin(42, { ttlMs: 60000, urlWaitMs: 1000 });
-    child._emitData('https://platform.claude.com/oauth/authorize?state=abc');
-    const login = await startPromise;
-
-    const completePromise = completeClaudeAuthLogin(42, login.loginSessionId, ' pasted-code ');
-
-    // setup-token prints the token mid-stream; the TUI does NOT exit on its own.
-    child._emitData('Your token: sk-ant-oat01-abcdef0123456789ABCDEF0123456789abcdef0123 (copy this)');
-
-    await expect(completePromise).resolves.toEqual(expect.objectContaining({
-      authenticated: true
-    }));
-    // Code and CR are written separately so the CLI's paste-detection doesn't
-    // swallow the Enter.
-    expect(child.write).toHaveBeenNthCalledWith(1, 'pasted-code');
-    expect(child.write).toHaveBeenNthCalledWith(2, '\r');
-    expect(writeClaudeOAuthToken).toHaveBeenCalledWith(
-      42,
-      'sk-ant-oat01-abcdef0123456789ABCDEF0123456789abcdef0123'
-    );
-    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
-    expect(getClaudeAuthStatus).toHaveBeenCalledWith(42);
-    expect(getActiveClaudeAuthLogin(42)).toBe(null);
-  });
-
-  it('fails when the CLI exits cleanly but no token is emitted', async () => {
-    const child = createMockPty(4567);
-    ptySpawnMock.mockReturnValue(child);
-
-    const startPromise = startClaudeAuthLogin(42, { ttlMs: 60000, urlWaitMs: 1000 });
-    child._emitData('https://platform.claude.com/oauth/authorize?state=abc');
-    const login = await startPromise;
-
-    const completePromise = completeClaudeAuthLogin(42, login.loginSessionId, 'pasted-code');
-    child._emitExit(0);
-
-    await expect(completePromise).rejects.toMatchObject({
-      name: 'ClaudeAuthLoginError',
-      message: expect.stringMatching(/no token was emitted/)
+      );
+      // The body is JSON with the code split from the state.
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body).toEqual(
+        expect.objectContaining({
+          grant_type: 'authorization_code',
+          code: 'auth-code-123',
+          state: stateOf(login.authUrl),
+          code_verifier: expect.any(String),
+        }),
+      );
+      expect(writeClaudeOAuthCredentials).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({
+          accessToken: 'sk-ant-oat01-test-token',
+          refreshToken: 'sk-ant-ort01-test-refresh',
+        }),
+      );
+      expect(status.authenticated).toBe(true);
     });
-    expect(writeClaudeOAuthToken).not.toHaveBeenCalled();
-  });
 
-  it('rejects with the parsed CLI error when Anthropic returns 400 for the code', async () => {
-    const child = createMockPty(4567);
-    ptySpawnMock.mockReturnValue(child);
-
-    const startPromise = startClaudeAuthLogin(42, { ttlMs: 60000, urlWaitMs: 1000 });
-    child._emitData('https://platform.claude.com/oauth/authorize?state=abc');
-    const login = await startPromise;
-
-    const completePromise = completeClaudeAuthLogin(42, login.loginSessionId, 'pasted-code');
-    // Same shape we observed live: cursor escapes between words, then the
-    // human-readable error line.
-    child._emitData('\x1b[1COAuth\x1b[1Cerror:\x1b[1CRequest\x1b[1Cfailed\x1b[1Cwith\x1b[1Cstatus\x1b[1Ccode\x1b[1C400\r\n');
-
-    await expect(completePromise).rejects.toMatchObject({
-      name: 'ClaudeAuthLoginError',
-      message: expect.stringMatching(/Claude rejected the authentication code:.*400/)
+    it('rejects a code missing the #state suffix', async () => {
+      const login = await startClaudeAuthLogin(42);
+      await expect(
+        completeClaudeAuthLogin(42, login.loginSessionId, 'auth-code-without-state'),
+      ).rejects.toThrow(/full code/i);
     });
-    expect(writeClaudeOAuthToken).not.toHaveBeenCalled();
-    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
-  });
 
-  it('fails when the CLI exits non-zero after the code is submitted', async () => {
-    const child = createMockPty(4567);
-    ptySpawnMock.mockReturnValue(child);
-
-    const startPromise = startClaudeAuthLogin(42, { ttlMs: 60000, urlWaitMs: 1000 });
-    child._emitData('https://platform.claude.com/oauth/authorize?state=abc');
-    const login = await startPromise;
-
-    const completePromise = completeClaudeAuthLogin(42, login.loginSessionId, 'bad-code');
-    child._emitExit(1);
-
-    await expect(completePromise).rejects.toMatchObject({
-      name: 'ClaudeAuthLoginError',
-      message: expect.stringMatching(/Check the code/)
+    it('rejects a code whose state does not match the session', async () => {
+      const login = await startClaudeAuthLogin(42);
+      await expect(
+        completeClaudeAuthLogin(42, login.loginSessionId, 'auth-code-123#wrong-state'),
+      ).rejects.toThrow(/does not match/i);
     });
-    expect(writeClaudeOAuthToken).not.toHaveBeenCalled();
-  });
 
-  it('rejects completion for a replaced login session', async () => {
-    const child = createMockPty(4567);
-    ptySpawnMock.mockReturnValue(child);
-
-    const startPromise = startClaudeAuthLogin(42, { ttlMs: 60000, urlWaitMs: 1000 });
-    child._emitData('https://platform.claude.com/oauth/authorize?state=abc');
-    await startPromise;
-
-    await expect(completeClaudeAuthLogin(42, 'old-session', 'code')).rejects.toMatchObject({
-      name: 'ClaudeAuthLoginError',
-      statusCode: 409
+    it('throws when no active session exists', async () => {
+      await expect(completeClaudeAuthLogin(42, 'no-such-session', 'code')).rejects.toThrow(
+        /No active Claude authentication session/,
+      );
     });
-  });
 
-  it('kills an active login process when cancelled', async () => {
-    const child = createMockPty(4567);
-    ptySpawnMock.mockReturnValue(child);
+    it('throws when loginSessionId is stale', async () => {
+      await startClaudeAuthLogin(42);
+      await expect(completeClaudeAuthLogin(42, 'wrong-id', 'code')).rejects.toThrow(
+        /replaced/i,
+      );
+    });
 
-    const startPromise = startClaudeAuthLogin(42, { ttlMs: 60000, urlWaitMs: 1000 });
-    child._emitData('https://platform.claude.com/oauth/authorize?state=abc');
-    await startPromise;
+    it('throws when the code is empty', async () => {
+      const login = await startClaudeAuthLogin(42);
+      await expect(completeClaudeAuthLogin(42, login.loginSessionId, '')).rejects.toThrow(
+        /valid Claude authentication code/,
+      );
+    });
 
-    expect(cancelClaudeAuthLogin(42)).toBe(true);
-    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
-    expect(getActiveClaudeAuthLogin(42)).toBe(null);
-  });
+    it('propagates a 400 from the token endpoint', async () => {
+      const login = await startClaudeAuthLogin(42);
+      mockTokenError(400, 'invalid_grant');
 
-  it('fails completion when no login process is active', async () => {
-    await expect(completeClaudeAuthLogin(42, 'session', 'code')).rejects.toBeInstanceOf(ClaudeAuthLoginError);
+      await expect(
+        completeClaudeAuthLogin(42, login.loginSessionId, `bad-code#${stateOf(login.authUrl)}`),
+      ).rejects.toThrow(/rejected the authentication code/i);
+    });
+
+    it('clears the session after a successful exchange', async () => {
+      const login = await startClaudeAuthLogin(42);
+      mockTokenResponse();
+
+      await completeClaudeAuthLogin(42, login.loginSessionId, `auth-code-123#${stateOf(login.authUrl)}`);
+
+      expect(getActiveClaudeAuthLogin(42)).toBeNull();
+    });
   });
 });

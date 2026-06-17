@@ -29,7 +29,8 @@ export type AgentType =
   | 'review'
   | 'refinement'
   | 'pr'
-  | 'yolo';
+  | 'yolo'
+  | 'po';
 
 export type AgentRunStatus =
   | 'pending'

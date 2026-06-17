@@ -9,7 +9,13 @@ import { conversationsDb, tasksDb } from '../../database/db.js';
 import { resolveResumeModelEffort } from '../agentModelSettings.js';
 import { getWorktreeProjectPath, worktreeExists } from '../worktree.js';
 import { generateConversationTitle } from '../titleGenerator.js';
-import { auditClaudeLaunch, buildClaudeSdkEnv, getQueryProcessPid } from '../claudeCredentials.js';
+import {
+  auditClaudeLaunch,
+  buildClaudeSdkEnv,
+  ensureFreshClaudeToken,
+  getQueryProcessPid,
+  refreshClaudeOAuthToken,
+} from '../claudeCredentials.js';
 import { createContextUsageTracker } from '../contextUsageTracker.js';
 import { resolveSlashCommand } from './slashCommands.js';
 import { handleVideoRecording, handleImages, cleanupTempFiles } from './media.js';
@@ -103,6 +109,7 @@ export async function startConversation(
     projectPath = getWorktreeProjectPath(projectPath, taskId, taskWithProject.subproject_path);
   }
 
+  await ensureFreshClaudeToken(userId);
   const claudeEnv = buildClaudeSdkEnv(userId);
 
   let conversationId = options.conversationId;
@@ -332,13 +339,20 @@ export async function startConversation(
           return;
         }
 
-        // Subprocess auth credential aged out mid-stream: the on-disk token is
-        // still good, so kill this dead subprocess and resume the conversation
-        // once in a fresh one. Don't broadcast claude-error — keep it transparent.
+        // Subprocess auth credential aged out mid-stream: try refreshing the
+        // OAuth token first, then resume in a fresh subprocess.
+        // Don't broadcast claude-error — keep it transparent.
         if (isClaudeAuthError(error) && !normalizedOptions.isAuthRetry) {
           console.warn(
-            `[ConversationAdapter] Auth 401 on conversation ${conversationId} — recycling subprocess and resuming (1 retry)`,
+            `[ConversationAdapter] Auth 401 on conversation ${conversationId} — attempting token refresh then recycling subprocess`,
           );
+          try {
+            await refreshClaudeOAuthToken(userId);
+            console.log(`[ConversationAdapter] Token refreshed for user ${userId} after 401`);
+          } catch (refreshErr) {
+            const msg = refreshErr instanceof Error ? refreshErr.message : String(refreshErr);
+            console.warn(`[ConversationAdapter] Token refresh failed: ${msg}`);
+          }
           await delay(AUTH_RETRY_BACKOFF_MS);
           try {
             await sendMessage(conversationId, message, { ...options, isAuthRetry: true });
@@ -460,6 +474,7 @@ export async function sendMessage(
   }
 
   const abortController = new AbortController();
+  await ensureFreshClaudeToken(userId);
   const claudeEnv = buildClaudeSdkEnv(userId);
 
   // Resume reads transcripts from sqliteSessionStore.load() — no per-user
@@ -611,13 +626,20 @@ export async function sendMessage(
     activeSessions.delete(claudeSessionId);
     await cleanupTempFiles(tempImagePaths, tempDir);
 
-    // Subprocess auth credential aged out mid-stream: recycle it and resume
-    // once in a fresh subprocess. Skip for AskUserQuestion-resume turns —
-    // re-driving a synthesised tool_result is fiddly and the case is rare.
+    // Subprocess auth credential aged out mid-stream: try refreshing the
+    // OAuth token, then resume in a fresh subprocess. Skip for
+    // AskUserQuestion-resume turns — re-driving a tool_result is fiddly.
     if (isClaudeAuthError(error) && !normalizedOptions.isAuthRetry && !askUserQuestionToolResult) {
       console.warn(
-        `[ConversationAdapter] Auth 401 on conversation ${conversationId} — recycling subprocess and resuming (1 retry)`,
+        `[ConversationAdapter] Auth 401 on conversation ${conversationId} — attempting token refresh then recycling subprocess`,
       );
+      try {
+        await refreshClaudeOAuthToken(userId);
+        console.log(`[ConversationAdapter] Token refreshed for user ${userId} after 401`);
+      } catch (refreshErr) {
+        const msg = refreshErr instanceof Error ? refreshErr.message : String(refreshErr);
+        console.warn(`[ConversationAdapter] Token refresh failed: ${msg}`);
+      }
       await delay(AUTH_RETRY_BACKOFF_MS);
       return await sendMessage(conversationId, message, { ...options, isAuthRetry: true });
     }

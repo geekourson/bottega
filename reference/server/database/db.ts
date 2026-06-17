@@ -127,6 +127,50 @@ export function backfillUserAgentModelSettings(database: Database.Database): voi
     .run();
 }
 
+/**
+ * One-shot backfill: add the `po` agent entry to every user's settings_json
+ * that was seeded before the PO agent was introduced. Uses the user's existing
+ * `planification` setting as the model/effort reference so the PO agent picks
+ * whatever the user already configured for planning work.
+ */
+function backfillPoAgentModelSettings(database: Database.Database): void {
+  const sentinel = database
+    .prepare(`SELECT value FROM app_settings WHERE key = 'po_agent_settings_backfilled'`)
+    .get();
+  if (sentinel) return;
+
+  console.log('Running migration: Backfilling per-user agent_model_settings for po agent');
+
+  const rows = database
+    .prepare('SELECT user_id, settings_json FROM user_agent_model_settings')
+    .all() as { user_id: number; settings_json: string }[];
+
+  const stmt = database.prepare(
+    `UPDATE user_agent_model_settings SET settings_json = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
+  );
+
+  for (const row of rows) {
+    try {
+      const settings = JSON.parse(row.settings_json) as Record<string, unknown>;
+      if (settings.po) continue;
+      const ref = (settings.planification ?? settings.implementation ?? {
+        provider: 'anthropic', model: 'opus', effort: 'high',
+      }) as { provider: string; model: string; effort: string | null };
+      settings.po = { provider: ref.provider, model: ref.model, effort: ref.effort };
+      stmt.run(JSON.stringify(settings), row.user_id);
+    } catch {
+      // Skip malformed rows — loadAgentModelSettings will fail loud for them.
+    }
+  }
+
+  database
+    .prepare(
+      `INSERT INTO app_settings (key, value, updated_at)
+       VALUES ('po_agent_settings_backfilled', '1', CURRENT_TIMESTAMP)`,
+    )
+    .run();
+}
+
 const runMigrations = (): void => {
   try {
     const tableInfo = db.prepare('PRAGMA table_info(users)').all() as ColumnInfoRow[];
@@ -317,6 +361,38 @@ const runMigrations = (): void => {
     } catch (migrationError) {
       const message = migrationError instanceof Error ? migrationError.message : String(migrationError);
       console.error('Error migrating task_agent_runs for yolo agent type:', message);
+    }
+
+    try {
+      const checkPoAgentType = db
+        .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='task_agent_runs'`)
+        .get() as { sql: string } | undefined;
+
+      if (checkPoAgentType && !checkPoAgentType.sql.includes("'po'")) {
+        console.log('Running migration: Adding po agent type to task_agent_runs');
+        db.exec(`
+          DROP TABLE IF EXISTS task_agent_runs_new;
+          CREATE TABLE task_agent_runs_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            agent_type TEXT NOT NULL CHECK(agent_type IN ('planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po')),
+            status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed', 'blocked')),
+            conversation_id INTEGER,
+            provider TEXT NOT NULL DEFAULT 'anthropic',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            completed_at DATETIME,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+          );
+          INSERT INTO task_agent_runs_new SELECT * FROM task_agent_runs;
+          DROP TABLE task_agent_runs;
+          ALTER TABLE task_agent_runs_new RENAME TO task_agent_runs;
+          CREATE INDEX idx_task_agent_runs_task_id ON task_agent_runs(task_id);
+        `);
+      }
+    } catch (migrationError) {
+      const message = migrationError instanceof Error ? migrationError.message : String(migrationError);
+      console.error('Error migrating task_agent_runs for po agent type:', message);
     }
 
     try {
@@ -546,6 +622,7 @@ const runMigrations = (): void => {
     `);
 
     backfillUserAgentModelSettings(db);
+    backfillPoAgentModelSettings(db);
 
     console.log('Database migrations completed successfully');
   } catch (error) {

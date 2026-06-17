@@ -130,6 +130,7 @@ vi.mock('lucide-react', () => ({
   X: () => <span data-testid="icon-x" />,
   Loader2: () => <span data-testid="icon-loader2" />,
   MessageCircleQuestion: () => <span data-testid="icon-question" />,
+  BrainCircuit: () => <span data-testid="icon-brain-circuit" />,
 }));
 
 // Helper to render with Router

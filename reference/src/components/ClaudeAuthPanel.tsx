@@ -5,7 +5,7 @@
 // hook the picker modal consumes, so the modal and the Settings panel share
 // one source of truth.
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -37,6 +37,16 @@ export function ClaudeAuthPanel() {
   const [info, setInfo] = useState<string | null>(null);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const loading = isChecking && status === 'unknown';
+  const lastOpenedUrlRef = useRef<string | null>(null);
+
+  // Ouvre automatiquement la fenêtre d'autorisation Claude dès qu'une nouvelle URL arrive.
+  // La ref évite de ré-ouvrir si la même URL est restaurée après un refresh de page.
+  useEffect(() => {
+    if (authUrl && authUrl !== lastOpenedUrlRef.current) {
+      lastOpenedUrlRef.current = authUrl;
+      window.open(authUrl, '_blank', 'noopener,noreferrer');
+    }
+  }, [authUrl]);
 
   const expiryText = (() => {
     if (!expiresAt) return null;

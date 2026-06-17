@@ -75,6 +75,7 @@ import webhooksRoutes from './routes/webhooks.js';
 import settingsRoutes from './routes/settings.js';
 import appSettingsRoutes from './routes/appSettings.js';
 import userAgentModelSettingsRoutes from './routes/userAgentModelSettings.js';
+import poSessionsRoutes from './routes/po-sessions.js';
 import { initializeDatabase, agentRunsDb } from './database/db.js';
 import { getProject } from './services/projectService.js';
 import { transcribeAudio } from './services/transcription.js';
@@ -202,6 +203,7 @@ app.use('/api', authenticateToken, webServerRoutes);
 app.use('/api/settings', authenticateToken, settingsRoutes);
 app.use('/api/user-agent-model-settings', authenticateToken, userAgentModelSettingsRoutes);
 
+app.use('/api', authenticateToken, poSessionsRoutes);
 app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
 
 app.get('/api/streaming-sessions', authenticateToken, (req, res) => {

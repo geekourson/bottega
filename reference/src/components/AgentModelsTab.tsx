@@ -25,6 +25,7 @@ const AGENT_LABELS: Record<AgentType, string> = {
   review: 'Review',
   pr: 'PR',
   yolo: 'YOLO',
+  po: 'PO Session',
 };
 
 function AgentModelsTab() {

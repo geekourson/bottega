@@ -48,6 +48,7 @@ export const AGENT_TYPES_WITH_SETTINGS: readonly AgentType[] = [
   'review',
   'pr',
   'yolo',
+  'po',
 ];
 
 // Historical global default (all agents on Opus/high). No longer a runtime
@@ -61,6 +62,7 @@ export const DEFAULT_AGENT_MODEL_SETTINGS: AgentModelSettings = {
   review: { provider: 'anthropic', model: 'opus', effort: 'high' },
   pr: { provider: 'anthropic', model: 'opus', effort: 'high' },
   yolo: { provider: 'anthropic', model: 'opus', effort: 'high' },
+  po: { provider: 'anthropic', model: 'opus', effort: 'high' },
 };
 
 // First-connect seed defaults (chosen with the user): a new user who connects

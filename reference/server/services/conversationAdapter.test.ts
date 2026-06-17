@@ -97,6 +97,8 @@ vi.mock('./claudeCredentials.js', () => ({
     ANTHROPIC_API_KEY: undefined,
     ANTHROPIC_AUTH_TOKEN: undefined
   })),
+  ensureFreshClaudeToken: vi.fn().mockResolvedValue(undefined),
+  refreshClaudeOAuthToken: vi.fn().mockResolvedValue('sk-ant-oat01-refreshed'),
   getQueryProcessPid: vi.fn(() => null),
   resolveClaudeConfigDir: vi.fn((userId) => `/var/lib/ccui/users/${userId}/.claude`),
   validateClaudeCredentials: vi.fn(),

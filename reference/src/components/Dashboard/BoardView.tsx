@@ -24,12 +24,13 @@ import {
   X,
   Loader2,
   MessageCircleQuestion,
+  BrainCircuit,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { useTaskContext } from '../../contexts/TaskContext';
 import { useClaudeAuth } from '../../contexts/ClaudeAuthContext';
-import { api } from '../../utils/api';
+import { api, authenticatedFetch } from '../../utils/api';
 import { useTasksLiveSubscriptions } from '../../hooks/useTasksLiveSubscriptions';
 import BoardColumn from './BoardColumn';
 import TaskForm from '../TaskForm';
@@ -74,6 +75,9 @@ function BoardView({ className, project }: BoardViewProps) {
   // Ask Question modal state
   const [showAskQuestion, setShowAskQuestion] = useState(false);
   const [isAsking, setIsAsking] = useState(false);
+
+  // PO session state
+  const [isStartingPoSession, setIsStartingPoSession] = useState(false);
 
   // Subscribe to task-channel events for every task currently displayed on
   // the board so the per-card Live indicator keeps updating between REST
@@ -334,6 +338,29 @@ function BoardView({ className, project }: BoardViewProps) {
     [project, requireClaudeAuth, createTask, navigate]
   );
 
+  // Handle PO session: create PO task + start PO agent + navigate to chat
+  const handleStartPoSession = useCallback(async () => {
+    if (!project) return;
+    if (!requireClaudeAuth()) return;
+    setIsStartingPoSession(true);
+    try {
+      const response = await authenticatedFetch(`/api/projects/${project.id}/po-sessions`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        console.error('Failed to start PO session:', err);
+        return;
+      }
+      const { taskId, conversationId } = await response.json() as { taskId: number; conversationId: number };
+      navigate(`/projects/${project.id}/tasks/${taskId}/chat/${conversationId}`);
+    } catch (err) {
+      console.error('Error starting PO session:', err);
+    } finally {
+      setIsStartingPoSession(false);
+    }
+  }, [project, requireClaudeAuth, navigate]);
+
   // Handle back navigation
   const handleBack = useCallback(() => {
     navigate(`/`);
@@ -421,6 +448,21 @@ function BoardView({ className, project }: BoardViewProps) {
             >
               <MessageCircleQuestion className="w-4 h-4 mr-1.5" />
               Ask Question
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleStartPoSession}
+              disabled={isStartingPoSession}
+              className="flex-shrink-0"
+              title="Start a PO planning session to propose tasks for the next sprint"
+            >
+              {isStartingPoSession ? (
+                <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+              ) : (
+                <BrainCircuit className="w-4 h-4 mr-1.5" />
+              )}
+              {isStartingPoSession ? 'Starting…' : 'Session PO'}
             </Button>
             <Button
               variant="default"

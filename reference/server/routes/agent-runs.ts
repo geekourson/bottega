@@ -27,6 +27,7 @@ const VALID_AGENT_TYPES: AgentType[] = [
   'review',
   'pr',
   'yolo',
+  'po',
 ];
 
 router.get(

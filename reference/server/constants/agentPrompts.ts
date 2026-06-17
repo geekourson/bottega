@@ -9,6 +9,9 @@
  */
 
 import { renderPrompt, resolvePromptPath } from '../services/promptRenderer.js';
+import { tasksDb } from '../database/db.js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 interface FileContext {
   path?: string;
@@ -222,6 +225,27 @@ ${commentEntries}
   const feedbackSection = `## User Feedback${reviewBodySection}${inlineCommentsSection}`;
 
   return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection });
+}
+
+export async function generatePoMessage(
+  projectId: number,
+  repoPath: string,
+): Promise<string> {
+  const tasks = tasksDb.getByProject(projectId);
+
+  let existingTasks: string;
+  if (tasks.length === 0) {
+    existingTasks = '_No tasks yet in this project._';
+  } else {
+    existingTasks = tasks
+      .map((t) => `- [${t.status}] ${t.title || '(untitled)'}`)
+      .join('\n');
+  }
+
+  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+  const createTaskScriptPath = path.resolve(scriptDir, '../../scripts/create-task.ts');
+
+  return renderPrompt('po', { projectId, repoPath, existingTasks, createTaskScriptPath });
 }
 
 /**
