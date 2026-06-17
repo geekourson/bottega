@@ -232,6 +232,9 @@ export type ServerToClientMessage =
       conversationId: ConversationId;
       toolUseId: string | null;
       questions: unknown[];
+      // Present when dual-emitted on the task channel so the board can flag the
+      // card without opening the conversation.
+      taskId?: TaskId;
     }
   | {
       type: 'ask-user-question-error';
@@ -242,6 +245,8 @@ export type ServerToClientMessage =
       type: 'ask-user-question-resolved';
       conversationId: ConversationId;
       kind: string;
+      // Present when dual-emitted on the task channel (clears the board flag).
+      taskId?: TaskId;
     }
   // ---- Subscription acks ----
   | {

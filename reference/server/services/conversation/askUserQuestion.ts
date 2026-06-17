@@ -31,6 +31,8 @@ interface CanUseToolResult {
 interface BuildCanUseToolOptions {
   conversationId?: ConversationId | undefined;
   broadcastFn?: BroadcastFn | undefined;
+  taskId?: number | undefined;
+  broadcastToTaskSubscribersFn?: BroadcastToTaskSubscribersFn | undefined;
 }
 
 interface ResolveOptions {
@@ -53,6 +55,8 @@ interface ResolveOptions {
 export function buildCanUseTool({
   conversationId,
   broadcastFn,
+  taskId,
+  broadcastToTaskSubscribersFn,
 }: BuildCanUseToolOptions = {}) {
   return async function canUseTool(
     toolName: string,
@@ -114,6 +118,16 @@ export function buildCanUseTool({
 
       if (broadcastFn) {
         broadcastFn(conversationId, {
+          type: 'awaiting-user-answer',
+          conversationId,
+          toolUseId,
+          questions,
+        });
+      }
+      // Dual-emit on the task channel so the board can flag the card as
+      // "waiting for an answer" without anyone opening the conversation.
+      if (broadcastToTaskSubscribersFn && typeof taskId === 'number') {
+        broadcastToTaskSubscribersFn(taskId, {
           type: 'awaiting-user-answer',
           conversationId,
           toolUseId,
@@ -291,6 +305,13 @@ export async function resolveAskUserQuestion(
     if (options.broadcastToTaskSubscribersFn) {
       const conversation = conversationsDb.getById(conversationId);
       if (conversation?.task_id) {
+        // Clear the board's "waiting for answer" flag for this task…
+        options.broadcastToTaskSubscribersFn(conversation.task_id, {
+          type: 'ask-user-question-resolved',
+          conversationId,
+          kind: 'resolved',
+        });
+        // …and re-affirm the live/streaming badge as the turn resumes.
         options.broadcastToTaskSubscribersFn(conversation.task_id, {
           type: 'streaming-started',
           conversationId,

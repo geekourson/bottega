@@ -31,12 +31,14 @@ import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { useTaskContext } from '../../contexts/TaskContext';
 import { useClaudeAuth } from '../../contexts/ClaudeAuthContext';
+import { useWebSocket } from '../../contexts/WebSocketContext';
 import { api, authenticatedFetch } from '../../utils/api';
 import { useTasksLiveSubscriptions } from '../../hooks/useTasksLiveSubscriptions';
 import BoardColumn from './BoardColumn';
 import TaskForm from '../TaskForm';
 import AskQuestionModal, { type AskQuestionPayload } from '../AskQuestionModal';
-import type { ProjectRow, TaskRow, TaskStatus } from '../../../shared/types/db';
+import type { AgentRunRow, ProjectRow, TaskRow, TaskStatus } from '../../../shared/types/db';
+import type { ServerMessageOf } from '../../../shared/websocket/messages';
 import type { CreateTaskRequest } from '../../../shared/api/tasks';
 import type { WebServerStatusSuccess } from '../../../shared/api/projects';
 
@@ -67,6 +69,7 @@ function BoardView({ className, project }: BoardViewProps) {
     createTask,
     deleteTask,
     isTaskLive,
+    isTaskAwaitingQuestion,
     loadTasks,
   } = useTaskContext();
 
@@ -94,7 +97,10 @@ function BoardView({ className, project }: BoardViewProps) {
   // Task documentation cache
   const [taskDocs, setTaskDocs] = useState<Record<number, string>>({});
   const [taskConversationCounts, setTaskConversationCounts] = useState<Record<number, number>>({});
+  const [taskAgentRuns, setTaskAgentRuns] = useState<Record<number, AgentRunRow[]>>({});
   const [isLoadingTaskData, setIsLoadingTaskData] = useState(false);
+
+  const { subscribe, unsubscribe } = useWebSocket();
 
   // Web server status
   const [webServerStatus, setWebServerStatus] = useState<WebServerStatusSuccess | null>(null);
@@ -181,12 +187,14 @@ function BoardView({ className, project }: BoardViewProps) {
       if (tasks.length === 0) {
         setTaskDocs({});
         setTaskConversationCounts({});
+        setTaskAgentRuns({});
         return;
       }
 
       setIsLoadingTaskData(true);
       const newDocs: Record<number, string> = {};
       const newCounts: Record<number, number> = {};
+      const newAgentRuns: Record<number, AgentRunRow[]> = {};
 
       try {
         await Promise.all(
@@ -210,6 +218,12 @@ function BoardView({ className, project }: BoardViewProps) {
                   : (convData as { conversations?: unknown[] })?.conversations ?? [];
                 newCounts[task.id] = conversations.length;
               }
+
+              // Load agent runs for the per-card pipeline stepper
+              const runsResponse = await api.agentRuns.list(task.id);
+              if (runsResponse.ok) {
+                newAgentRuns[task.id] = await runsResponse.json();
+              }
             } catch (error) {
               console.error(`Error loading data for task ${task.id}:`, error);
             }
@@ -218,6 +232,7 @@ function BoardView({ className, project }: BoardViewProps) {
 
         setTaskDocs(newDocs);
         setTaskConversationCounts(newCounts);
+        setTaskAgentRuns(newAgentRuns);
       } finally {
         setIsLoadingTaskData(false);
       }
@@ -225,6 +240,35 @@ function BoardView({ className, project }: BoardViewProps) {
 
     void loadTaskData();
   }, [tasks]);
+
+  // Keep the per-card pipeline live: upsert the run carried by each
+  // agent-run-updated event (task-scoped, delivered for subscribed tasks).
+  useEffect(() => {
+    if (!subscribe || !unsubscribe) return;
+
+    const handleAgentRunUpdated = (message: ServerMessageOf<'agent-run-updated'>) => {
+      const { taskId, agentRun } = message;
+      if (!taskId || !agentRun) return;
+      setTaskAgentRuns((prev) => {
+        const existing = prev[taskId] ?? [];
+        const idx = existing.findIndex((r) => r.id === agentRun.id);
+        const merged: AgentRunRow =
+          idx >= 0
+            ? { ...existing[idx], ...agentRun } as AgentRunRow
+            : ({ ...agentRun, task_id: taskId } as AgentRunRow);
+        const next =
+          idx >= 0
+            ? existing.map((r) => (r.id === agentRun.id ? merged : r))
+            : [...existing, merged];
+        return { ...prev, [taskId]: next };
+      });
+    };
+
+    subscribe('agent-run-updated', handleAgentRunUpdated);
+    return () => {
+      unsubscribe('agent-run-updated', handleAgentRunUpdated);
+    };
+  }, [subscribe, unsubscribe]);
 
   // Handle task click - navigate to task detail view
   const handleTaskClick = useCallback(
@@ -548,6 +592,8 @@ function BoardView({ className, project }: BoardViewProps) {
           taskDocs={taskDocs}
           taskConversationCounts={taskConversationCounts}
           isTaskLive={isTaskLive}
+          isTaskAwaitingQuestion={isTaskAwaitingQuestion}
+          taskAgentRuns={taskAgentRuns}
           onTaskClick={handleTaskClick}
           onTaskEdit={handleTaskEdit}
           onTaskDelete={handleTaskDelete}
@@ -576,6 +622,8 @@ function BoardView({ className, project }: BoardViewProps) {
           taskDocs={taskDocs}
           taskConversationCounts={taskConversationCounts}
           isTaskLive={isTaskLive}
+          isTaskAwaitingQuestion={isTaskAwaitingQuestion}
+          taskAgentRuns={taskAgentRuns}
           onTaskClick={handleTaskClick}
           onTaskEdit={handleTaskEdit}
           onTaskDelete={handleTaskDelete}
@@ -586,6 +634,8 @@ function BoardView({ className, project }: BoardViewProps) {
           taskDocs={taskDocs}
           taskConversationCounts={taskConversationCounts}
           isTaskLive={isTaskLive}
+          isTaskAwaitingQuestion={isTaskAwaitingQuestion}
+          taskAgentRuns={taskAgentRuns}
           onTaskClick={handleTaskClick}
           onTaskEdit={handleTaskEdit}
           onTaskDelete={handleTaskDelete}
@@ -596,6 +646,8 @@ function BoardView({ className, project }: BoardViewProps) {
           taskDocs={taskDocs}
           taskConversationCounts={taskConversationCounts}
           isTaskLive={isTaskLive}
+          isTaskAwaitingQuestion={isTaskAwaitingQuestion}
+          taskAgentRuns={taskAgentRuns}
           onTaskClick={handleTaskClick}
           onTaskEdit={handleTaskEdit}
           onTaskDelete={handleTaskDelete}

@@ -19,6 +19,12 @@ vi.mock('../../hooks/useTasksLiveSubscriptions', () => ({
   useTasksLiveSubscriptions: vi.fn(),
 }));
 
+// BoardView listens to agent-run-updated for the live pipeline; stub the WS
+// context so the component test doesn't need a WebSocketProvider.
+vi.mock('../../contexts/WebSocketContext', () => ({
+  useWebSocket: () => ({ subscribe: vi.fn(), unsubscribe: vi.fn() }),
+}));
+
 // Mock API
 vi.mock('../../utils/api', () => ({
   api: {
@@ -29,6 +35,9 @@ vi.mock('../../utils/api', () => ({
     conversations: {
       list: vi.fn(),
       createWithMessage: vi.fn(),
+    },
+    agentRuns: {
+      list: vi.fn(),
     },
     projects: {
       getWebServer: vi.fn(),
@@ -163,6 +172,8 @@ describe('BoardView Component', () => {
     createTask: vi.fn(),
     deleteTask: vi.fn(),
     isTaskLive: vi.fn(() => false),
+    isTaskAwaitingQuestion: vi.fn(() => false),
+    loadTasks: vi.fn(),
   } as unknown as TaskContextValue;
 
   beforeEach(() => {
@@ -173,6 +184,7 @@ describe('BoardView Component', () => {
     vi.mocked(api.tasks.getDoc).mockResolvedValue(mockTypedResponse({ content: 'Doc content' } as never));
     vi.mocked(api.tasks.update).mockResolvedValue(mockTypedResponse({} as never));
     vi.mocked(api.conversations.list).mockResolvedValue(mockTypedResponse({ conversations: [] } as never));
+    vi.mocked(api.agentRuns.list).mockResolvedValue(mockTypedResponse([] as never));
     vi.mocked(api.conversations.createWithMessage).mockResolvedValue(
       mockTypedResponse({ id: 'conv1', claude_conversation_id: 'claude-1' } as never),
     );

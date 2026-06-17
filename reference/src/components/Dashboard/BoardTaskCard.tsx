@@ -7,9 +7,10 @@
  */
 
 import React, { useMemo } from 'react';
-import { MessageSquare, FileText, Pencil, GitBranch, Trash2 } from 'lucide-react';
+import { MessageSquare, FileText, Pencil, GitBranch, Trash2, MessageCircleQuestion } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import type { TaskRow } from '../../../shared/types/db';
+import AgentPipeline from './AgentPipeline';
+import type { AgentRunRow, TaskRow } from '../../../shared/types/db';
 
 /**
  * Extract plain text preview from markdown documentation
@@ -55,6 +56,8 @@ export interface BoardTaskCardProps {
   task: TaskRow;
   isLive?: boolean | undefined;
   isBlocked?: boolean | undefined;
+  isAwaitingQuestion?: boolean | undefined;
+  agentRuns?: AgentRunRow[] | undefined;
   conversationCount?: number | undefined;
   docPreview?: string | undefined;
   branchName?: string | null | undefined;
@@ -67,6 +70,8 @@ function BoardTaskCard({
   task,
   isLive = false,
   isBlocked = false,
+  isAwaitingQuestion = false,
+  agentRuns = [],
   conversationCount = 0,
   docPreview = '',
   branchName = null,
@@ -109,15 +114,27 @@ function BoardTaskCard({
         // Micro-interaction: subtle scale on hover
         'hover:scale-[1.02] active:scale-[0.98]',
         'transform-gpu',
-        isLive
-          ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.1)]'
-          : isBlocked
-            ? 'border-red-600/60 bg-red-950/10'
-            : 'border-border hover:border-primary/30'
+        isAwaitingQuestion
+          ? 'border-amber-500/70 bg-amber-500/5 shadow-[0_0_10px_rgba(245,158,11,0.15)]'
+          : isLive
+            ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.1)]'
+            : isBlocked
+              ? 'border-red-600/60 bg-red-950/10'
+              : 'border-border hover:border-primary/30'
       )}
     >
+      {/* AWAITING-ANSWER indicator (takes precedence — it needs the user) */}
+      {isAwaitingQuestion && (
+        <div className="absolute top-2 right-2">
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500 text-white animate-pulse">
+            <MessageCircleQuestion className="w-3 h-3" />
+            QUESTION
+          </span>
+        </div>
+      )}
+
       {/* LIVE indicator */}
-      {isLive && (
+      {isLive && !isAwaitingQuestion && (
         <div className="absolute top-2 right-2">
           <span className="flex h-2.5 w-2.5">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
@@ -127,7 +144,7 @@ function BoardTaskCard({
       )}
 
       {/* BLOCKED indicator */}
-      {isBlocked && !isLive && (
+      {isBlocked && !isLive && !isAwaitingQuestion && (
         <div className="absolute top-2 right-2">
           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-600 text-white">
             BLOCKED
@@ -139,13 +156,16 @@ function BoardTaskCard({
       <h4 className={cn(
         'font-semibold text-sm text-foreground leading-tight',
         'line-clamp-2',
-        (isLive || isBlocked) && 'pr-14' // Make room for LIVE/BLOCKED indicator
+        (isLive || isBlocked || isAwaitingQuestion) && 'pr-20' // Make room for the indicator
       )}>
         {task.title || `Task ${task.id}`}
       </h4>
 
-      {/* Meta row: branch, conversation count + doc preview */}
+      {/* Meta row: pipeline, branch, conversation count + doc preview */}
       <div className="mt-2 flex flex-col gap-1.5">
+        {/* Agent pipeline progress */}
+        <AgentPipeline agentRuns={agentRuns} yoloMode={!!task.yolo_mode} />
+
         {/* Branch name */}
         {branchName && (
           <div className="flex items-center gap-1.5 text-xs">

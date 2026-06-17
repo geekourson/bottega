@@ -134,7 +134,12 @@ export async function startConversation(
     effort,
     disallowedTools: normalizedOptions.disallowedTools,
     env: claudeEnv,
-    canUseTool: buildCanUseTool({ conversationId, broadcastFn }),
+    canUseTool: buildCanUseTool({
+      conversationId,
+      broadcastFn,
+      taskId,
+      broadcastToTaskSubscribersFn,
+    }),
   });
 
   let mcpServers = await loadMcpConfig(projectPath);
@@ -484,7 +489,12 @@ export async function sendMessage(
     sessionId: claudeSessionId,
     permissionMode,
     env: claudeEnv,
-    canUseTool: buildCanUseTool({ conversationId, broadcastFn }),
+    canUseTool: buildCanUseTool({
+      conversationId,
+      broadcastFn,
+      taskId,
+      broadcastToTaskSubscribersFn,
+    }),
     model: resumeModel,
     effort: resumeEffort,
   });

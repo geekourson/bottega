@@ -14,7 +14,7 @@ import { cn } from '../../lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
 import BoardTaskCard from './BoardTaskCard';
 import EmptyColumnIllustration from './EmptyColumnIllustration';
-import type { TaskRow, TaskStatus } from '../../../shared/types/db';
+import type { AgentRunRow, TaskRow, TaskStatus } from '../../../shared/types/db';
 
 type BoardColumnStatus = TaskStatus;
 
@@ -69,6 +69,8 @@ export interface BoardColumnProps {
   taskDocs?: Record<number, string>;
   taskConversationCounts?: Record<number, number>;
   isTaskLive?: (taskId: number) => boolean;
+  isTaskAwaitingQuestion?: (taskId: number) => boolean;
+  taskAgentRuns?: Record<number, AgentRunRow[]>;
   onTaskClick?: (task: TaskRow) => void;
   onTaskEdit?: (task: TaskRow) => void;
   onTaskDelete?: (task: TaskRow) => void;
@@ -83,6 +85,8 @@ function BoardColumn({
   taskDocs = {},
   taskConversationCounts = {},
   isTaskLive,
+  isTaskAwaitingQuestion,
+  taskAgentRuns = {},
   onTaskClick,
   onTaskEdit,
   onTaskDelete,
@@ -148,6 +152,8 @@ function BoardColumn({
                 task={task}
                 isLive={isTaskLive?.(task.id) ?? false}
                 isBlocked={!!task.workflow_blocked}
+                isAwaitingQuestion={isTaskAwaitingQuestion?.(task.id) ?? false}
+                agentRuns={taskAgentRuns[task.id]}
                 conversationCount={
                   taskConversationCounts[task.id] ??
                   (task as TaskRow & { conversation_count?: number }).conversation_count ??

@@ -4,6 +4,7 @@
 import {
   activeSessions,
   activeStreamingSessions,
+  pendingAskUserQuestions,
 } from './sessionState.js';
 import { cleanupTempFiles } from './media.js';
 import { hasProjectAccess } from '../projectService.js';
@@ -157,4 +158,26 @@ export function getAllActiveStreamingSessions(
     });
   }
   return sessions;
+}
+
+/**
+ * Task ids that currently have an AskUserQuestion parked in memory, scoped to
+ * the project the caller can access. Powers the board's "waiting for answer"
+ * badge on first load (the live transitions arrive over WebSocket afterwards).
+ */
+export function getAwaitingQuestionTaskIds(
+  userId: number | undefined,
+  projectId?: number,
+): number[] {
+  const taskIds = new Set<number>();
+  for (const conversationId of pendingAskUserQuestions.keys()) {
+    const conv = conversationsDb.getById(conversationId);
+    if (!conv?.task_id) continue;
+    const task = tasksDb.getById(conv.task_id);
+    if (!task) continue;
+    if (typeof projectId === 'number' && task.project_id !== projectId) continue;
+    if (!hasProjectAccess(task.project_id, userId)) continue;
+    taskIds.add(conv.task_id);
+  }
+  return Array.from(taskIds);
 }

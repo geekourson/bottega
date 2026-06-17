@@ -165,6 +165,10 @@ export interface TaskContextValue {
   // Live task tracking
   liveTaskIds: Set<number>;
   isTaskLive: (taskId: number) => boolean;
+
+  // Tasks with an agent waiting for an answer to an AskUserQuestion
+  awaitingQuestionTaskIds: Set<number>;
+  isTaskAwaitingQuestion: (taskId: number) => boolean;
 }
 
 const TaskContext = createContext<TaskContextValue | null>(null);
@@ -199,6 +203,10 @@ export function TaskContextProvider({ children }: { children: ReactNode }) {
   // Live task tracking
   const [liveTaskIds, setLiveTaskIds] = useState<Set<number>>(new Set());
   const liveTaskIdsRef = useRef<Set<number>>(new Set());
+
+  // Tasks waiting for an answer to an AskUserQuestion
+  const [awaitingQuestionTaskIds, setAwaitingQuestionTaskIds] = useState<Set<number>>(new Set());
+  const awaitingQuestionTaskIdsRef = useRef<Set<number>>(new Set());
 
   // Conversations state (for currently selected task)
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -723,6 +731,27 @@ export function TaskContextProvider({ children }: { children: ReactNode }) {
     void fetchActiveSessions();
   }, [isConnected]);
 
+  // Seed tasks-awaiting-an-answer on mount and after WebSocket reconnect — the
+  // live transitions arrive over WS, but a board opened while a question is
+  // already parked needs the initial snapshot.
+  useEffect(() => {
+    const fetchAwaitingQuestions = async () => {
+      try {
+        const response = await api.pendingQuestions.list();
+        if (response.ok) {
+          const data = await response.json();
+          const taskIds = new Set<number>(data.taskIds);
+          setAwaitingQuestionTaskIds(taskIds);
+          awaitingQuestionTaskIdsRef.current = taskIds;
+        }
+      } catch (err) {
+        console.error('Error fetching pending questions:', err);
+      }
+    };
+
+    void fetchAwaitingQuestions();
+  }, [isConnected]);
+
   // Subscribe to streaming events via WebSocket
   useEffect(() => {
     if (!subscribe || !unsubscribe) return;
@@ -748,20 +777,62 @@ export function TaskContextProvider({ children }: { children: ReactNode }) {
           liveTaskIdsRef.current = next;
           return next;
         });
+        // A turn that ends (answer, abort, crash) is no longer awaiting input.
+        clearAwaitingQuestion(taskId);
       }
+    };
+
+    const addAwaitingQuestion = (taskId: number) => {
+      setAwaitingQuestionTaskIds((prev) => {
+        if (prev.has(taskId)) return prev;
+        const next = new Set(prev);
+        next.add(taskId);
+        awaitingQuestionTaskIdsRef.current = next;
+        return next;
+      });
+    };
+
+    const clearAwaitingQuestion = (taskId: number) => {
+      setAwaitingQuestionTaskIds((prev) => {
+        if (!prev.has(taskId)) return prev;
+        const next = new Set(prev);
+        next.delete(taskId);
+        awaitingQuestionTaskIdsRef.current = next;
+        return next;
+      });
+    };
+
+    const handleAwaitingUserAnswer = (
+      message: ServerMessageOf<'awaiting-user-answer'>,
+    ) => {
+      if (typeof message.taskId === 'number') addAwaitingQuestion(message.taskId);
+    };
+
+    const handleQuestionResolved = (
+      message: ServerMessageOf<'ask-user-question-resolved'>,
+    ) => {
+      if (typeof message.taskId === 'number') clearAwaitingQuestion(message.taskId);
     };
 
     subscribe('streaming-started', handleStreamingStarted);
     subscribe('streaming-ended', handleStreamingEnded);
+    subscribe('awaiting-user-answer', handleAwaitingUserAnswer);
+    subscribe('ask-user-question-resolved', handleQuestionResolved);
 
     return () => {
       unsubscribe('streaming-started', handleStreamingStarted);
       unsubscribe('streaming-ended', handleStreamingEnded);
+      unsubscribe('awaiting-user-answer', handleAwaitingUserAnswer);
+      unsubscribe('ask-user-question-resolved', handleQuestionResolved);
     };
   }, [subscribe, unsubscribe]);
 
   const isTaskLive = useCallback((taskId: number): boolean => {
     return liveTaskIdsRef.current.has(taskId);
+  }, []);
+
+  const isTaskAwaitingQuestion = useCallback((taskId: number): boolean => {
+    return awaitingQuestionTaskIdsRef.current.has(taskId);
   }, []);
 
   // ========== Context Value ==========
@@ -834,6 +905,10 @@ export function TaskContextProvider({ children }: { children: ReactNode }) {
     // Live task tracking
     liveTaskIds,
     isTaskLive,
+
+    // Tasks awaiting an answer
+    awaitingQuestionTaskIds,
+    isTaskAwaitingQuestion,
   };
 
   return <TaskContext.Provider value={value}>{children}</TaskContext.Provider>;

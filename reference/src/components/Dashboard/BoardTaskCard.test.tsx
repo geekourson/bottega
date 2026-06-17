@@ -8,6 +8,12 @@ vi.mock('lucide-react', () => ({
   MessageSquare: () => <span data-testid="icon-message-square" />,
   FileText: () => <span data-testid="icon-file-text" />,
   Pencil: () => <span data-testid="icon-pencil" />,
+  MessageCircleQuestion: () => <span data-testid="icon-question" />,
+  GitBranch: () => <span data-testid="icon-git-branch" />,
+  Trash2: () => <span data-testid="icon-trash" />,
+  Check: () => <span data-testid="icon-check" />,
+  X: () => <span data-testid="icon-x" />,
+  Loader2: () => <span data-testid="icon-loader" />,
 }));
 
 const asTask = <T extends Partial<TaskRow>>(t: T): TaskRow => t as unknown as TaskRow;
@@ -74,6 +80,51 @@ describe('BoardTaskCard Component', () => {
 
       const card = screen.getByTestId('board-task-card-t1');
       expect(card.className).toContain('border-red-500');
+    });
+  });
+
+  describe('Awaiting-Question Indicator', () => {
+    it('shows the QUESTION badge when isAwaitingQuestion is true', () => {
+      render(<BoardTaskCard {...defaultProps} isAwaitingQuestion={true} />);
+
+      expect(screen.getByText('QUESTION')).toBeInTheDocument();
+    });
+
+    it('does not show the QUESTION badge by default', () => {
+      render(<BoardTaskCard {...defaultProps} />);
+
+      expect(screen.queryByText('QUESTION')).not.toBeInTheDocument();
+    });
+
+    it('takes precedence over the live indicator', () => {
+      render(<BoardTaskCard {...defaultProps} isLive={true} isAwaitingQuestion={true} />);
+
+      const card = screen.getByTestId('board-task-card-t1');
+      // The amber awaiting border wins; the live pulse is suppressed.
+      expect(card.className).toContain('border-amber-500');
+      expect(card.querySelector('.animate-ping')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Agent Pipeline', () => {
+    it('renders the pipeline stepper when agent runs are provided', () => {
+      render(
+        <BoardTaskCard
+          {...defaultProps}
+          agentRuns={[
+            { id: 1, agent_type: 'planification', status: 'completed' } as never,
+          ]}
+        />,
+      );
+
+      expect(screen.getByTestId('agent-pipeline')).toBeInTheDocument();
+      expect(screen.getByTestId('pipeline-step-planification').dataset.state).toBe('completed');
+    });
+
+    it('does not render the pipeline when there are no agent runs', () => {
+      render(<BoardTaskCard {...defaultProps} />);
+
+      expect(screen.queryByTestId('agent-pipeline')).not.toBeInTheDocument();
     });
   });
 

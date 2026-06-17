@@ -52,7 +52,7 @@ import http from 'http';
 import cors from 'cors';
 import { promises as fsPromises } from 'fs';
 
-import { getAllActiveStreamingSessions } from './services/conversationAdapter.js';
+import { getAllActiveStreamingSessions, getAwaitingQuestionTaskIds } from './services/conversationAdapter.js';
 import {
   dispatchClientMessage,
   cleanupClientSubscriptions,
@@ -209,6 +209,22 @@ app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
 app.get('/api/streaming-sessions', authenticateToken, (req, res) => {
   const sessions = getAllActiveStreamingSessions(req.user?.id);
   res.json({ sessions });
+});
+
+// Task ids that currently have an AskUserQuestion waiting for an answer.
+// Optional `?projectId=` narrows to one project's board.
+app.get('/api/pending-questions', authenticateToken, (req: Request, res: Response) => {
+  const projectIdRaw = req.query.projectId;
+  const projectId =
+    typeof projectIdRaw === 'string' && projectIdRaw.trim() !== ''
+      ? Number(projectIdRaw)
+      : undefined;
+  if (projectId !== undefined && !Number.isInteger(projectId)) {
+    res.status(400).json({ error: 'Invalid projectId' });
+    return;
+  }
+  const taskIds = getAwaitingQuestionTaskIds(req.user?.id, projectId);
+  res.json({ taskIds });
 });
 
 app.use(express.static(path.join(__dirname, '../public')));

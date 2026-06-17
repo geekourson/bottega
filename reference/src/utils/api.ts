@@ -620,6 +620,17 @@ export const api = {
       }>('/api/streaming-sessions'),
   },
 
+  // Task ids with an AskUserQuestion currently waiting for an answer, scoped to
+  // a project. Powers the board's "waiting for answer" badge on first load.
+  pendingQuestions: {
+    list: (projectId?: number): TypedFetch<{ taskIds: number[] }> =>
+      authenticatedFetch<{ taskIds: number[] }>(
+        typeof projectId === 'number'
+          ? `/api/pending-questions?projectId=${projectId}`
+          : '/api/pending-questions',
+      ),
+  },
+
   // Voice transcription — handler in server/index.js, opaque pass-through
   // to the Whisper API. Returns `{ text: string }` on success.
   transcribe: (formData: FormData): TypedFetch<{ text: string }> =>

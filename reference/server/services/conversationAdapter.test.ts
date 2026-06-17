@@ -507,7 +507,8 @@ describe('conversationAdapter', () => {
       } as never);
 
       const broadcastFn = vi.fn();
-      await startConversation(1, 'Hello', { model: 'opus', broadcastFn });
+      const broadcastToTaskSubscribersFn = vi.fn();
+      await startConversation(1, 'Hello', { model: 'opus', broadcastFn, broadcastToTaskSubscribersFn });
       await new Promise(resolve => setTimeout(resolve, 30));
 
       const canUseTool = vi.mocked(query).mock.calls[0]![0].options!.canUseTool!;
@@ -539,11 +540,23 @@ describe('conversationAdapter', () => {
         })
       );
 
-      // Now resolve with real answers.
+      // Dual-emit on the task channel so the board can flag the card.
+      expect(broadcastToTaskSubscribersFn).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          type: 'awaiting-user-answer',
+          conversationId: 1,
+          toolUseId: 'tool-abc',
+          questions: input.questions
+        })
+      );
+
+      // Now resolve with real answers. getById feeds the task-channel emit.
+      vi.mocked(conversationsDb.getById).mockReturnValue({ id: 1, task_id: 1 } as never);
       const result = resolveAskUserQuestion(1, {
         'Which database?': 'pg',
         'Which auth?': 'jwt'
-      }, { broadcastFn });
+      }, { broadcastFn, broadcastToTaskSubscribersFn });
 
       const cuseResult = await callbackPromise;
       await result;
@@ -560,6 +573,12 @@ describe('conversationAdapter', () => {
       expect(broadcastFn).toHaveBeenCalledWith(
         1,
         expect.objectContaining({ type: 'streaming-started' })
+      );
+
+      // The task channel clears the board's "waiting for answer" flag.
+      expect(broadcastToTaskSubscribersFn).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ type: 'ask-user-question-resolved' })
       );
 
       releaseHold();

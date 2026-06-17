@@ -28,6 +28,7 @@ export {
   getActiveSessions,
   getActiveStreamingByConversation,
   getAllActiveStreamingSessions,
+  getAwaitingQuestionTaskIds,
 } from './conversation/sessionControl.js';
 export { resolveAskUserQuestion } from './conversation/askUserQuestion.js';
 
