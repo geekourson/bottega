@@ -38,6 +38,15 @@ export interface DeleteAgentRunResponse {
   success: true;
 }
 
+// `POST /api/projects/:projectId/agent-runs/start-pending` — batch-start the
+// first pipeline agent (planification, or yolo for YOLO tasks) on every
+// eligible pending task in a project. Tasks with an agent already running are
+// reported under `skipped`.
+export interface StartPendingAgentsResponse {
+  started: { taskId: number; agentType: AgentType; agentRunId: number }[];
+  skipped: { taskId: number; reason: string }[];
+}
+
 // ---- Type-level smoke checks ---------------------------------------------
 
 expectType<CreateAgentRunRequest['agentType']>('implementation');

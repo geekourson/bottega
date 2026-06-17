@@ -13,8 +13,8 @@ const TOKEN_REFRESH_AHEAD_MS = 5 * 60 * 1000;
 
 export interface ClaudeOAuthCredentials {
   accessToken: string;
-  refreshToken?: string;
-  expiresAt?: number;
+  refreshToken?: string | undefined;
+  expiresAt?: number | undefined;
 }
 // Per https://code.claude.com/docs/en/authentication#authentication-precedence
 // these env vars take precedence over CLAUDE_CODE_OAUTH_TOKEN. We strip them

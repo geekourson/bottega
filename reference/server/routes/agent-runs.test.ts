@@ -5,7 +5,8 @@ import express from 'express';
 // Mock the database module
 vi.mock('../database/db.js', () => ({
   tasksDb: {
-    getWithProject: vi.fn()
+    getWithProject: vi.fn(),
+    getByProject: vi.fn()
   },
   agentRunsDb: {
     create: vi.fn(),
@@ -318,6 +319,119 @@ describe('Agent Runs Routes', () => {
 
       expect(response.status).toBe(500);
       expect(response.body.error).toBe('Failed to start agent run');
+    });
+  });
+
+  describe('POST /api/projects/:projectId/agent-runs/start-pending', () => {
+    beforeEach(() => {
+      vi.mocked(getRunningAgentForTask).mockReturnValue(null);
+      vi.mocked(startAgentRun).mockImplementation(
+        async (taskId, agentType) =>
+          ({ agentRun: { id: taskId * 10, task_id: taskId, agent_type: agentType, status: 'running' } }) as never,
+      );
+    });
+
+    it('starts the first pipeline agent on every pending task', async () => {
+      vi.mocked(tasksDb.getByProject).mockReturnValue([
+        { id: 1, project_id: 1, status: 'pending', yolo_mode: 0 },
+        { id: 2, project_id: 1, status: 'in_progress', yolo_mode: 0 },
+        { id: 3, project_id: 1, status: 'pending', yolo_mode: 1 },
+      ] as never);
+
+      const response = await request(app)
+        .post('/api/projects/1/agent-runs/start-pending')
+        .send();
+
+      expect(response.status).toBe(200);
+      expect(response.body.started).toHaveLength(2);
+      // Normal pending task → planification; YOLO task → yolo
+      expect(startAgentRun).toHaveBeenCalledWith(1, 'planification', expect.any(Object));
+      expect(startAgentRun).toHaveBeenCalledWith(3, 'yolo', expect.any(Object));
+      // The in_progress task is never touched
+      expect(startAgentRun).not.toHaveBeenCalledWith(2, expect.anything(), expect.anything());
+    });
+
+    it('skips pending tasks that already have a running agent', async () => {
+      vi.mocked(tasksDb.getByProject).mockReturnValue([
+        { id: 1, project_id: 1, status: 'pending', yolo_mode: 0 },
+        { id: 2, project_id: 1, status: 'pending', yolo_mode: 0 },
+      ] as never);
+      vi.mocked(getRunningAgentForTask).mockImplementation(
+        (taskId) => (taskId === 1 ? ({ id: 99 } as never) : null),
+      );
+
+      const response = await request(app)
+        .post('/api/projects/1/agent-runs/start-pending')
+        .send();
+
+      expect(response.status).toBe(200);
+      expect(response.body.started).toHaveLength(1);
+      expect(response.body.skipped).toHaveLength(1);
+      expect(response.body.skipped[0].taskId).toBe(1);
+      expect(startAgentRun).toHaveBeenCalledTimes(1);
+      expect(startAgentRun).toHaveBeenCalledWith(2, 'planification', expect.any(Object));
+    });
+
+    it('returns 404 when the user is not a project member', async () => {
+      vi.mocked(hasProjectAccess).mockReturnValue(false);
+
+      const response = await request(app)
+        .post('/api/projects/1/agent-runs/start-pending')
+        .send();
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Project not found');
+      expect(startAgentRun).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 for an invalid project ID', async () => {
+      const response = await request(app)
+        .post('/api/projects/invalid/agent-runs/start-pending')
+        .send();
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid project ID');
+    });
+
+    it('returns 403 when the configured provider has no credentials', async () => {
+      const { ProviderCredentialsMissingError } = await import(
+        '../services/credentials/types.js'
+      );
+      vi.mocked(tasksDb.getByProject).mockReturnValue([
+        { id: 1, project_id: 1, status: 'pending', yolo_mode: 0 },
+      ] as never);
+      vi.mocked(startAgentRun).mockRejectedValueOnce(
+        new ProviderCredentialsMissingError('anthropic', 'no token'),
+      );
+
+      const response = await request(app)
+        .post('/api/projects/1/agent-runs/start-pending')
+        .send();
+
+      expect(response.status).toBe(403);
+      expect(response.body.code).toBe('PROVIDER_CREDENTIALS_MISSING');
+      expect(response.body.provider).toBe('anthropic');
+    });
+
+    it('reports per-task failures under skipped without aborting the batch', async () => {
+      vi.mocked(tasksDb.getByProject).mockReturnValue([
+        { id: 1, project_id: 1, status: 'pending', yolo_mode: 0 },
+        { id: 2, project_id: 1, status: 'pending', yolo_mode: 0 },
+      ] as never);
+      vi.mocked(startAgentRun)
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValueOnce({
+          agentRun: { id: 20, task_id: 2, agent_type: 'planification', status: 'running' },
+        } as never);
+
+      const response = await request(app)
+        .post('/api/projects/1/agent-runs/start-pending')
+        .send();
+
+      expect(response.status).toBe(200);
+      expect(response.body.started).toHaveLength(1);
+      expect(response.body.skipped).toHaveLength(1);
+      expect(response.body.skipped[0]).toEqual({ taskId: 1, reason: 'boom' });
     });
   });
 

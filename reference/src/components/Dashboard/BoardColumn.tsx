@@ -72,6 +72,8 @@ export interface BoardColumnProps {
   onTaskClick?: (task: TaskRow) => void;
   onTaskEdit?: (task: TaskRow) => void;
   onTaskDelete?: (task: TaskRow) => void;
+  /** Optional action rendered in the column header (e.g. "Run all"). */
+  headerAction?: React.ReactNode;
   className?: string;
 }
 
@@ -84,6 +86,7 @@ function BoardColumn({
   onTaskClick,
   onTaskEdit,
   onTaskDelete,
+  headerAction,
   className,
 }: BoardColumnProps) {
   const config = statusConfig[status] || statusConfig.pending;
@@ -130,6 +133,7 @@ function BoardColumn({
         )}>
           {tasks.length}
         </span>
+        {headerAction}
       </div>
 
       {/* Task list */}

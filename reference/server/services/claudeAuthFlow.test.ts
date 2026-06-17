@@ -149,7 +149,7 @@ describe('claudeAuthFlow (PKCE direct)', () => {
         }),
       );
       // The body is JSON with the code split from the state.
-      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      const body = JSON.parse(mockFetch.mock.calls[0]![1]!.body as string);
       expect(body).toEqual(
         expect.objectContaining({
           grant_type: 'authorization_code',

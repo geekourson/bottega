@@ -94,6 +94,7 @@ import type {
   LinkConversationRequest,
   LinkConversationResponse,
   DeleteAgentRunResponse,
+  StartPendingAgentsResponse,
 } from '../../shared/api/agent-runs';
 import type {
   ListAdminUsersResponse,
@@ -590,6 +591,11 @@ export const api = {
       authenticatedFetch<DeleteAgentRunResponse>(`/api/agent-runs/${id}`, {
         method: 'DELETE',
       }),
+    startPending: (projectId: number): TypedFetch<StartPendingAgentsResponse> =>
+      authenticatedFetch<StartPendingAgentsResponse>(
+        `/api/projects/${projectId}/agent-runs/start-pending`,
+        { method: 'POST' },
+      ),
   },
 
   // Streaming sessions (for live indicator). The endpoint lives inline in

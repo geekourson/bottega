@@ -25,6 +25,7 @@ import {
   Loader2,
   MessageCircleQuestion,
   BrainCircuit,
+  Play,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
@@ -66,6 +67,7 @@ function BoardView({ className, project }: BoardViewProps) {
     createTask,
     deleteTask,
     isTaskLive,
+    loadTasks,
   } = useTaskContext();
 
   // Task form modal state
@@ -78,6 +80,9 @@ function BoardView({ className, project }: BoardViewProps) {
 
   // PO session state
   const [isStartingPoSession, setIsStartingPoSession] = useState(false);
+
+  // Batch "run all pending agents" state
+  const [isStartingPending, setIsStartingPending] = useState(false);
 
   // Subscribe to task-channel events for every task currently displayed on
   // the board so the per-card Live indicator keeps updating between REST
@@ -361,6 +366,46 @@ function BoardView({ className, project }: BoardViewProps) {
     }
   }, [project, requireClaudeAuth, navigate]);
 
+  // Handle "Run all pending": batch-start the first pipeline agent on every
+  // pending task. The backend auto-chaining then carries each task forward.
+  const handleRunAllPending = useCallback(async () => {
+    if (!project || isStartingPending) return;
+    if (!requireClaudeAuth()) return;
+
+    const pendingCount = tasksByStatus.pending.length;
+    if (pendingCount === 0) return;
+    if (
+      !window.confirm(
+        `Start agents on ${pendingCount} pending task${pendingCount > 1 ? 's' : ''}? Each will run planification, then auto-chain through the pipeline.`,
+      )
+    ) {
+      return;
+    }
+
+    setIsStartingPending(true);
+    try {
+      const response = await api.agentRuns.startPending(project.id);
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        console.error('Failed to start pending agents:', err);
+        window.alert((err as { error?: string }).error || 'Failed to start pending agents');
+        return;
+      }
+      const result = await response.json();
+      if (result.skipped.length > 0) {
+        console.warn('Some pending tasks were skipped:', result.skipped);
+      }
+      // Backend flips each started task to in_progress synchronously before
+      // responding, so refetch to move the cards into the In Progress column
+      // immediately (rather than waiting for a manual refresh).
+      await loadTasks(project.id);
+    } catch (err) {
+      console.error('Error starting pending agents:', err);
+    } finally {
+      setIsStartingPending(false);
+    }
+  }, [project, isStartingPending, requireClaudeAuth, tasksByStatus.pending.length, loadTasks]);
+
   // Handle back navigation
   const handleBack = useCallback(() => {
     navigate(`/`);
@@ -506,6 +551,24 @@ function BoardView({ className, project }: BoardViewProps) {
           onTaskClick={handleTaskClick}
           onTaskEdit={handleTaskEdit}
           onTaskDelete={handleTaskDelete}
+          headerAction={
+            tasksByStatus.pending.length > 0 ? (
+              <button
+                onClick={handleRunAllPending}
+                disabled={isStartingPending}
+                className="flex items-center gap-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-primary disabled:opacity-50 transition-colors"
+                title="Start agents on all pending tasks"
+                data-testid="run-all-pending"
+              >
+                {isStartingPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Play className="w-3.5 h-3.5" />
+                )}
+                Run all
+              </button>
+            ) : undefined
+          }
         />
         <BoardColumn
           status="in_progress"
