@@ -243,6 +243,12 @@ export type GetDiffResponse =
   | { success: true; diff: string }
   | { success: false; error: string };
 
+export interface ResetTaskResponse {
+  success: true;
+  conversationsDeleted: number;
+  agentRunsDeleted: number;
+}
+
 // ---- Type-level smoke checks ---------------------------------------------
 
 expectType<TaskRow['status']>('pending');

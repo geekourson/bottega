@@ -29,3 +29,35 @@ export function isClaudeAuthError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return AUTH_ERROR_PATTERN.test(message);
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Output-token-limit auto-resume
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * How many times to transparently resume after a token-limit truncation before
+ * giving up. Allows the model to complete very long outputs over multiple turns
+ * (e.g. a 128k-per-turn limit × 5 turns = 640k tokens of total output).
+ */
+export const MAX_TOKEN_LIMIT_RETRIES = 5;
+
+// The CLI surfaces this as: "Claude's response exceeded the N output token
+// maximum. To configure this behavior, set the CLAUDE_CODE_MAX_OUTPUT_TOKENS
+// environment variable."
+const TOKEN_LIMIT_PATTERN = /exceeded the \d+ output token maximum/i;
+
+/** True when `error` is the CLI's "response truncated at output token cap". */
+export function isOutputTokenLimitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return TOKEN_LIMIT_PATTERN.test(message);
+}
+
+/**
+ * Continuation prompt sent on the auto-resume turn.
+ * The model sees its truncated prior output in the session and continues from
+ * where it was cut off.
+ */
+export const TOKEN_LIMIT_CONTINUATION_PROMPT =
+  'Your previous response was truncated because it exceeded the output token limit. ' +
+  'Please continue exactly where you left off, completing any unfinished sections. ' +
+  'Be concise: avoid repeating content already written.';

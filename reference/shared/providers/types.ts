@@ -29,13 +29,15 @@ import type {
   OpenCodeEffort,
   OllamaModel,
   OllamaEffort,
+  LocalAiModel,
+  LocalAiEffort,
 } from './models.js';
 
-export type Provider = 'anthropic' | 'openai' | 'opencode' | 'ollama';
+export type Provider = 'anthropic' | 'openai' | 'opencode' | 'ollama' | 'local-ai';
 
-export type ProviderModel = AnthropicModel | OpenAIModel | OpenCodeModel | OllamaModel;
+export type ProviderModel = AnthropicModel | OpenAIModel | OpenCodeModel | OllamaModel | LocalAiModel;
 
-export type ProviderEffort = AnthropicEffort | OpenAIEffort | OpenCodeEffort | OllamaEffort;
+export type ProviderEffort = AnthropicEffort | OpenAIEffort | OpenCodeEffort | OllamaEffort | LocalAiEffort;
 
 /**
  * Capability flags per provider. Call sites that depend on a

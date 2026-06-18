@@ -165,6 +165,9 @@ vi.mock('lucide-react', () => ({
   GitPullRequest: () => <span data-testid="icon-git-pull-request" />,
   Sparkles: () => <span data-testid="icon-sparkles" />,
   Zap: () => <span data-testid="icon-zap" />,
+  Palette: () => <span data-testid="icon-palette" />,
+  GitCompareArrows: () => <span data-testid="icon-git-compare-arrows" />,
+  RotateCcw: () => <span data-testid="icon-rotate-ccw" />,
 }));
 
 describe('TaskDetailView Component', () => {

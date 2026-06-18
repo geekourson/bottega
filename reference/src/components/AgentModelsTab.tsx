@@ -18,6 +18,7 @@ import type { AgentType } from '../../shared/types/db';
 import type { Provider } from '../../shared/providers/types';
 import type { OpenCodeModelEntry } from '../../shared/api/openCodeAuth';
 import type { OllamaModelEntry } from '../../shared/api/ollamaAuth';
+import type { LocalAiModelEntry } from '../../shared/api/localAiAuth';
 
 const AGENT_LABELS: Record<AgentType, string> = {
   planification: 'Planning',
@@ -38,6 +39,8 @@ function AgentModelsTab() {
   const [isLoadingOpenCodeModels, setLoadingOpenCodeModels] = useState(false);
   const [ollamaModels, setOllamaModels] = useState<OllamaModelEntry[] | null>(null);
   const [isLoadingOllamaModels, setLoadingOllamaModels] = useState(false);
+  const [localAiModels, setLocalAiModels] = useState<LocalAiModelEntry[] | null>(null);
+  const [isLoadingLocalAiModels, setLoadingLocalAiModels] = useState(false);
   const [isLoading, setLoading] = useState(true);
   const [isSaving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,6 +74,20 @@ function AgentModelsTab() {
     }
   }, []);
 
+  const loadLocalAiModels = useCallback(async () => {
+    setLoadingLocalAiModels(true);
+    try {
+      const res = await api.localAiAuth.models();
+      if (!res.ok) { setLocalAiModels([]); return; }
+      const body = await res.json();
+      setLocalAiModels(body.models);
+    } catch {
+      setLocalAiModels([]);
+    } finally {
+      setLoadingLocalAiModels(false);
+    }
+  }, []);
+
   useEffect(() => {
     void (async () => {
       setLoading(true);
@@ -84,6 +101,7 @@ function AgentModelsTab() {
           setConnected(body.connected);
           if (body.connected.includes('opencode')) void loadOpenCodeModels();
           if (body.connected.includes('ollama')) void loadOllamaModels();
+          if (body.connected.includes('local-ai')) void loadLocalAiModels();
         }
         if (settingsRes.ok) {
           const body = await settingsRes.json();
@@ -101,7 +119,7 @@ function AgentModelsTab() {
         setLoading(false);
       }
     })();
-  }, [loadOpenCodeModels]);
+  }, [loadOpenCodeModels, loadOllamaModels, loadLocalAiModels]);
 
   const updateAgentSetting = useCallback(
     async (agent: AgentType, patch: Partial<AgentModelSetting>) => {
@@ -118,7 +136,9 @@ function AgentModelsTab() {
             ? (openCodeModels?.[0]?.id ?? null)
             : p === 'ollama'
               ? (ollamaModels?.[0]?.id ?? null)
-              : ((MODELS_FOR_UI[p] as readonly string[])[0] ?? null);
+              : p === 'local-ai'
+                ? (localAiModels?.[0]?.id ?? null)
+                : ((MODELS_FOR_UI[p] as readonly string[])[0] ?? null);
         if (nextModel === null) {
           if (p === 'ollama') {
             setError(
@@ -161,7 +181,7 @@ function AgentModelsTab() {
         setSaving(false);
       }
     },
-    [settings, openCodeModels, ollamaModels],
+    [settings, openCodeModels, ollamaModels, localAiModels],
   );
 
   if (isLoading) {
@@ -223,6 +243,8 @@ function AgentModelsTab() {
             isLoadingOpenCodeModels={isLoadingOpenCodeModels}
             ollamaModels={ollamaModels}
             isLoadingOllamaModels={isLoadingOllamaModels}
+            localAiModels={localAiModels}
+            isLoadingLocalAiModels={isLoadingLocalAiModels}
             disabled={isSaving}
             onChange={updateAgentSetting}
           />

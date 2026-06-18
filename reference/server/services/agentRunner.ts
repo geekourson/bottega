@@ -207,6 +207,7 @@ export async function startAgentRun(
 
   // Link conversation to agent run
   agentRunsDb.linkConversation(agentRun.id, conversation.id);
+  agentRun.conversation_id = conversation.id;
   console.log(`[AgentRunner] Linked conversation ${conversation.id} to agent run ${agentRun.id}`);
 
   // Broadcast agent run created/running to task subscribers

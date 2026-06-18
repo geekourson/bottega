@@ -72,6 +72,7 @@ import type {
   PushChangesResponse,
   DiscardWorktreeResponse,
   GetDiffResponse,
+  ResetTaskResponse,
 } from '../../shared/api/tasks';
 import type { TaskRow, TaskStatus } from '../../shared/types/db';
 import type {
@@ -141,6 +142,13 @@ import type {
   SetOllamaUrlResponse,
   SetOllamaMaxTokensResponse,
 } from '../../shared/api/ollamaAuth';
+import type {
+  LocalAiAuthStatusResponse,
+  LocalAiModelsResponse,
+  SetLocalAiUrlResponse,
+  ClearLocalAiUrlResponse,
+  SetLocalAiMaxTokensResponse,
+} from '../../shared/api/localAiAuth';
 import type {
   ConnectedProvidersResponse,
   GetUserAgentModelSettingsResponse,
@@ -313,6 +321,27 @@ export const api = {
       }),
     models: (): TypedFetch<OllamaModelsResponse> =>
       authenticatedFetch<OllamaModelsResponse>('/api/ollama-auth/models'),
+  },
+
+  localAiAuth: {
+    status: (): TypedFetch<LocalAiAuthStatusResponse> =>
+      authenticatedFetch<LocalAiAuthStatusResponse>('/api/local-ai-auth/status'),
+    setUrl: (url: string): TypedFetch<SetLocalAiUrlResponse> =>
+      authenticatedFetch<SetLocalAiUrlResponse>('/api/local-ai-auth/url', {
+        method: 'PUT',
+        body: JSON.stringify({ url }),
+      }),
+    clear: (): TypedFetch<ClearLocalAiUrlResponse> =>
+      authenticatedFetch<ClearLocalAiUrlResponse>('/api/local-ai-auth/url', {
+        method: 'DELETE',
+      }),
+    setMaxTokens: (maxOutputTokens: number): TypedFetch<SetLocalAiMaxTokensResponse> =>
+      authenticatedFetch<SetLocalAiMaxTokensResponse>('/api/local-ai-auth/max-tokens', {
+        method: 'PUT',
+        body: JSON.stringify({ maxOutputTokens }),
+      }),
+    models: (): TypedFetch<LocalAiModelsResponse> =>
+      authenticatedFetch<LocalAiModelsResponse>('/api/local-ai-auth/models'),
   },
 
   codexAuth: {
@@ -514,6 +543,8 @@ export const api = {
     },
     getDiff: (id: number): TypedFetch<GetDiffResponse> =>
       authenticatedFetch<GetDiffResponse>(`/api/tasks/${id}/diff`),
+    reset: (id: number): TypedFetch<ResetTaskResponse> =>
+      authenticatedFetch<ResetTaskResponse>(`/api/tasks/${id}/reset`, { method: 'DELETE' }),
     // Review recording — HEAD-only check; the body is the binary stream.
     checkReviewRecording: (taskId: number): TypedFetch<unknown> =>
       authenticatedFetch<unknown>(`/api/tasks/${taskId}/review-recording`, { method: 'HEAD' }),

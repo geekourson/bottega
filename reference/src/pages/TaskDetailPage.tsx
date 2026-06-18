@@ -275,13 +275,18 @@ function TaskDetailPage() {
         return;
       }
 
+      const newRun = await response.json() as { conversation_id?: number | null };
       await loadAgentRuns(task.id);
+      await loadConversations(task.id);
       toast.success(`${agentType.charAt(0).toUpperCase() + agentType.slice(1)} agent started`);
+      if (newRun.conversation_id) {
+        navigate(`/projects/${projectId}/tasks/${taskId}/chat/${newRun.conversation_id}`);
+      }
     } catch (err) {
       console.error('Error starting agent:', err);
       toast.error(`Failed to start agent: ${(err as Error).message}`);
     }
-  }, [task, openAuthModal, loadAgentRuns, toast]);
+  }, [task, openAuthModal, loadAgentRuns, loadConversations, navigate, projectId, taskId, toast]);
 
   const handleApproveUxDesign = useCallback(async (approveTaskId: number) => {
     // Find the latest ux_design agent run with a conversation
@@ -349,6 +354,28 @@ function TaskDetailPage() {
     }
   }, [agentRuns, toast]);
 
+  const handleResetTask = useCallback(async (resetTaskId: number) => {
+    try {
+      const response = await api.tasks.reset(resetTaskId);
+      if (response.ok) {
+        await loadAgentRuns(resetTaskId);
+        await loadConversations(resetTaskId);
+        const taskResponse = await api.tasks.get(resetTaskId);
+        if (taskResponse.ok) {
+          const updatedTask = await taskResponse.json();
+          setTask(updatedTask);
+        }
+        toast.success('Tâche réinitialisée');
+      } else {
+        const data = await response.json().catch(() => ({})) as { error?: string };
+        toast.error(data.error || 'Échec de la réinitialisation');
+      }
+    } catch (err) {
+      console.error('Error resetting task:', err);
+      toast.error(`Échec de la réinitialisation: ${(err as Error).message}`);
+    }
+  }, [loadAgentRuns, loadConversations, toast]);
+
   // Loading state
   if (isLoading || isLoadingProjects || !project || !task) {
     return (
@@ -386,6 +413,7 @@ function TaskDetailPage() {
         onWorkflowCompleteChange={handleWorkflowCompleteChange}
         onResumeWorkflow={handleResumeWorkflow}
         onApproveUxDesign={handleApproveUxDesign}
+        onResetTask={handleResetTask}
         onNewConversation={handleNewConversation}
         onResumeConversation={handleResumeConversation}
         onDeleteConversation={deleteConversation}

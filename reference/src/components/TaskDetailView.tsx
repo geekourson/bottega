@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { FileText, ArrowLeft, ChevronDown, Check, CheckCircle2, GitBranch, ExternalLink, GitMerge, Copy, ArrowUpRight, ArrowDownLeft, Upload, Server, ArrowDownToLine, Loader2, AlertCircle, X, GitCompareArrows, Zap, Palette } from 'lucide-react';
+import { FileText, ArrowLeft, ChevronDown, Check, CheckCircle2, GitBranch, ExternalLink, GitMerge, Copy, ArrowUpRight, ArrowDownLeft, Upload, Server, ArrowDownToLine, Loader2, AlertCircle, X, GitCompareArrows, Zap, Palette, RotateCcw } from 'lucide-react';
 import { Button } from './ui/button';
 import Breadcrumb from './Breadcrumb';
 import MarkdownEditor from './MarkdownEditor';
@@ -104,6 +104,7 @@ export interface TaskDetailViewProps {
   onWorkflowCompleteChange?: (taskId: number, value: boolean) => Promise<unknown>;
   onResumeWorkflow?: (taskId: number) => Promise<unknown>;
   onApproveUxDesign?: (taskId: number) => Promise<unknown>;
+  onResetTask?: (taskId: number) => Promise<void>;
   onUpdateTaskFlags?: (taskId: number, patch: { yolo_mode?: boolean; ux_review_required?: boolean }) => Promise<void>;
   onNewConversation: () => void;
   onResumeConversation: (conversation: ConversationRow) => void;
@@ -144,6 +145,7 @@ function TaskDetailView({
   onWorkflowCompleteChange,
   onResumeWorkflow,
   onApproveUxDesign,
+  onResetTask,
   onUpdateTaskFlags,
   onNewConversation,
   onResumeConversation,
@@ -158,6 +160,7 @@ function TaskDetailView({
   const [isUpdatingWorkflow, setIsUpdatingWorkflow] = useState(false);
   const [isResumingWorkflow, setIsResumingWorkflow] = useState(false);
   const [isApprovingUxDesign, setIsApprovingUxDesign] = useState(false);
+  const [isResettingTask, setIsResettingTask] = useState(false);
 
   // Worktree state
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeSuccess | null>(null);
@@ -639,6 +642,17 @@ Please:
     }
   };
 
+  const handleResetTask = async () => {
+    if (!onResetTask || !task) return;
+    if (!confirm('Réinitialiser la tâche ? Toutes les conversations et les runs d\'agents seront supprimés, et le statut sera remis à "En attente".')) return;
+    setIsResettingTask(true);
+    try {
+      await onResetTask(task.id);
+    } finally {
+      setIsResettingTask(false);
+    }
+  };
+
   const loadDiff = useCallback(async () => {
     if (!task?.id) return;
     setIsLoadingDiff(true);
@@ -726,6 +740,27 @@ Please:
               <CheckCircle2 className="w-4 h-4 fill-purple-500/20" />
               <span className="hidden sm:inline">Design Approved</span>
             </span>
+          )}
+
+          {/* Reset task button */}
+          {onResetTask && (
+            <button
+              onClick={handleResetTask}
+              disabled={isResettingTask}
+              title="Supprimer toutes les conversations et relancer de zéro"
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors flex-shrink-0',
+                'bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20',
+                isResettingTask && 'opacity-50 cursor-not-allowed'
+              )}
+            >
+              {isResettingTask ? (
+                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <RotateCcw className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">Reset</span>
+            </button>
           )}
 
           {/* Workflow control: Resume (if blocked) or Mark Done */}

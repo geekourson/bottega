@@ -19,6 +19,8 @@ import {
   OPENCODE_EFFORTS,
   OLLAMA_MODELS,
   OLLAMA_EFFORTS,
+  LOCAL_AI_MODELS,
+  LOCAL_AI_EFFORTS,
   isModelForProvider,
   isEffortForProvider,
 } from '../providers/models.js';
@@ -88,6 +90,7 @@ export function defaultSettingForProvider(
   provider: Provider,
   firstOpenCodeModelId: string | null,
   firstOllamaModelId?: string | null,
+  firstLocalAiModelId?: string | null,
 ): AgentModelSetting | null {
   if (provider === 'anthropic') {
     return { provider, model: ANTHROPIC_SEED.model, effort: ANTHROPIC_SEED.effort };
@@ -98,6 +101,10 @@ export function defaultSettingForProvider(
   if (provider === 'ollama') {
     if (!firstOllamaModelId) return null;
     return { provider, model: firstOllamaModelId, effort: null };
+  }
+  if (provider === 'local-ai') {
+    if (!firstLocalAiModelId) return null;
+    return { provider, model: firstLocalAiModelId, effort: null };
   }
   // opencode: no static catalog — a live id is required to seed.
   if (!firstOpenCodeModelId) return null;
@@ -113,8 +120,9 @@ export function buildSeedSettings(
   provider: Provider,
   firstOpenCodeModelId: string | null,
   firstOllamaModelId?: string | null,
+  firstLocalAiModelId?: string | null,
 ): AgentModelSettings | null {
-  const setting = defaultSettingForProvider(provider, firstOpenCodeModelId, firstOllamaModelId);
+  const setting = defaultSettingForProvider(provider, firstOpenCodeModelId, firstOllamaModelId, firstLocalAiModelId);
   if (!setting) return null;
   const result = {} as AgentModelSettings;
   for (const agentType of AGENT_TYPES_WITH_SETTINGS) {
@@ -146,7 +154,8 @@ export function isValidAgentModelSetting(
     setting.provider !== 'anthropic' &&
     setting.provider !== 'openai' &&
     setting.provider !== 'opencode' &&
-    setting.provider !== 'ollama'
+    setting.provider !== 'ollama' &&
+    setting.provider !== 'local-ai'
   ) {
     return false;
   }
@@ -163,6 +172,7 @@ export const MODELS_FOR_UI = {
   openai: OPENAI_MODELS,
   opencode: OPENCODE_MODELS,
   ollama: OLLAMA_MODELS,
+  'local-ai': LOCAL_AI_MODELS,
 } as const;
 
 export const EFFORTS_FOR_UI = {
@@ -170,4 +180,5 @@ export const EFFORTS_FOR_UI = {
   openai: OPENAI_EFFORTS,
   opencode: OPENCODE_EFFORTS,
   ollama: OLLAMA_EFFORTS,
+  'local-ai': LOCAL_AI_EFFORTS,
 } as const;

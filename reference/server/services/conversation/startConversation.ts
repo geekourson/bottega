@@ -35,7 +35,14 @@ import {
 } from './streamingLifecycle.js';
 import { buildAgentRunCompletionHandler } from './agentRunLifecycle.js';
 import { runStreamingLoop } from './runStreamingLoop.js';
-import { isClaudeAuthError, delay, AUTH_RETRY_BACKOFF_MS } from './retryOn401.js';
+import {
+  isClaudeAuthError,
+  isOutputTokenLimitError,
+  TOKEN_LIMIT_CONTINUATION_PROMPT,
+  MAX_TOKEN_LIMIT_RETRIES,
+  delay,
+  AUTH_RETRY_BACKOFF_MS,
+} from './retryOn401.js';
 import { startCodexConversation, sendCodexMessage } from './startCodexConversation.js';
 import {
   startOpenCodeConversation,
@@ -43,6 +50,8 @@ import {
 } from './startOpenCodeConversation.js';
 import { buildOllamaSdkEnv } from '../ollamaCredentials.js';
 import { parseOllamaModel } from '../providers/ollama/index.js';
+import { buildLocalAiSdkEnv } from '../localAiCredentials.js';
+import { parseLocalAiModel } from '../providers/local-ai/index.js';
 import type { ConversationOptions, StreamingContext } from './types.js';
 
 /**
@@ -112,11 +121,15 @@ export async function startConversation(
   }
 
   const isOllama = options.provider === 'ollama';
+  const isLocalAi = options.provider === 'local-ai';
   let sdkModel = model;
   let sdkEnv: Record<string, string | undefined>;
   if (isOllama) {
     sdkModel = parseOllamaModel(model);
     sdkEnv = buildOllamaSdkEnv(userId);
+  } else if (isLocalAi) {
+    sdkModel = parseLocalAiModel(model);
+    sdkEnv = buildLocalAiSdkEnv(userId);
   } else {
     await ensureFreshClaudeToken(userId);
     sdkEnv = buildClaudeSdkEnv(userId);
@@ -124,7 +137,7 @@ export async function startConversation(
 
   let conversationId = options.conversationId;
   if (!conversationId) {
-    const providerForRow = isOllama ? 'ollama' : 'anthropic';
+    const providerForRow = isOllama ? 'ollama' : isLocalAi ? 'local-ai' : 'anthropic';
     const conversation = conversationsDb.create(taskId, providerForRow, model, effort);
     conversationId = conversation.id;
     console.log(
@@ -150,10 +163,10 @@ export async function startConversation(
     }),
   });
 
-  // Ollama's Anthropic-compatible API does not support extended thinking or
-  // partial-message streaming — sending these params causes a 400 error that
-  // kills the subprocess before a session_id is ever emitted.
-  if (isOllama) {
+  // Local inference servers (Ollama, local-ai) don't support extended thinking
+  // or partial-message streaming — sending these params causes a 400 error
+  // that kills the subprocess before a session_id is ever emitted.
+  if (isOllama || isLocalAi) {
     delete (sdkOptions as Record<string, unknown>).thinking;
     delete (sdkOptions as Record<string, unknown>).includePartialMessages;
   }
@@ -312,7 +325,7 @@ export async function startConversation(
           // Ollama: mirror messages to sqliteSessionStore manually because
           // the Claude CLI does not create JSONL files for non-Anthropic
           // sessions (no server-side session to anchor the file name to).
-          ollamaProjectKey: isOllama ? projectPath.replace(/\//g, '-') : undefined,
+          ollamaProjectKey: (isOllama || isLocalAi) ? projectPath.replace(/\//g, '-') : undefined,
         });
 
         // In-band 401: the SDK delivered the auth failure as data instead
@@ -351,7 +364,9 @@ export async function startConversation(
               error:
                 isOllama
                   ? 'Ollama subprocess exited without starting a session. Check that Ollama is running (`ollama serve`) and the selected model exists (`ollama list`).'
-                  : 'The LLM subprocess exited without starting a session.',
+                  : isLocalAi
+                    ? 'Local AI subprocess exited without starting a session. Check that your local AI server is running and the selected model is loaded.'
+                    : 'The LLM subprocess exited without starting a session.',
             });
           }
           clearTimeout(timeout);
@@ -359,7 +374,9 @@ export async function startConversation(
             new Error(
               isOllama
                 ? 'Ollama not reachable or model not found — check `ollama serve` and `ollama list`'
-                : 'LLM subprocess exited without establishing a session',
+                : isLocalAi
+                  ? 'Local AI server not reachable or model not loaded'
+                  : 'LLM subprocess exited without establishing a session',
             ),
           );
           return;
@@ -425,6 +442,28 @@ export async function startConversation(
             // sendMessage already broadcast claude-error + ran composeOnComplete().
           }
           return;
+        }
+
+        // Output-token limit hit mid-response: the partial output is already
+        // persisted in the session store. Resume transparently with a
+        // continuation prompt so the agent finishes its work without any
+        // human intervention.
+        {
+          const retryCount = normalizedOptions.tokenLimitRetryCount ?? 0;
+          if (isOutputTokenLimitError(error) && retryCount < MAX_TOKEN_LIMIT_RETRIES) {
+            console.warn(
+              `[ConversationAdapter] Output token limit hit on conversation ${conversationId} — resuming automatically (attempt ${retryCount + 1}/${MAX_TOKEN_LIMIT_RETRIES})`,
+            );
+            try {
+              await sendMessage(conversationId, TOKEN_LIMIT_CONTINUATION_PROMPT, {
+                ...options,
+                tokenLimitRetryCount: retryCount + 1,
+              });
+            } catch {
+              // sendMessage already broadcast claude-error + ran composeOnComplete().
+            }
+            return;
+          }
         }
 
         if (broadcastFn) {
@@ -540,11 +579,15 @@ export async function sendMessage(
 
   const abortController = new AbortController();
   const isOllamaResume = resolvedProvider === 'ollama';
+  const isLocalAiResume = resolvedProvider === 'local-ai';
   let resumeSdkModel = resumeModel;
   let resumeEnv: Record<string, string | undefined>;
   if (isOllamaResume) {
     resumeSdkModel = parseOllamaModel(resumeModel);
     resumeEnv = buildOllamaSdkEnv(userId);
+  } else if (isLocalAiResume) {
+    resumeSdkModel = parseLocalAiModel(resumeModel);
+    resumeEnv = buildLocalAiSdkEnv(userId);
   } else {
     await ensureFreshClaudeToken(userId);
     resumeEnv = buildClaudeSdkEnv(userId);
@@ -567,9 +610,9 @@ export async function sendMessage(
     effort: resumeEffort,
   });
 
-  // Ollama's Anthropic-compatible API does not support extended thinking or
-  // partial-message streaming — sending these params causes a 400 error.
-  if (isOllamaResume) {
+  // Local inference servers don't support extended thinking or partial-message
+  // streaming — sending these params causes a 400 error.
+  if (isOllamaResume || isLocalAiResume) {
     delete (sdkOptions as Record<string, unknown>).thinking;
     delete (sdkOptions as Record<string, unknown>).includePartialMessages;
   }
@@ -683,7 +726,7 @@ export async function sendMessage(
       // the iterator open. runStreamingLoop swallows the abort error.
       onResult: () => abortController.abort(),
       // Ollama: same manual mirror as startConversation.
-      ollamaProjectKey: isOllamaResume ? projectPath.replace(/\//g, '-') : undefined,
+      ollamaProjectKey: (isOllamaResume || isLocalAiResume) ? projectPath.replace(/\//g, '-') : undefined,
     });
 
     // In-band 401: see matching comment in startConversation.
@@ -729,6 +772,21 @@ export async function sendMessage(
       }
       await delay(AUTH_RETRY_BACKOFF_MS);
       return await sendMessage(conversationId, message, { ...options, isAuthRetry: true });
+    }
+
+    // Output-token limit hit mid-response: partial output is already persisted.
+    // Resume automatically so the agent reaches completion without intervention.
+    {
+      const retryCount = normalizedOptions.tokenLimitRetryCount ?? 0;
+      if (isOutputTokenLimitError(error) && retryCount < MAX_TOKEN_LIMIT_RETRIES && !askUserQuestionToolResult) {
+        console.warn(
+          `[ConversationAdapter] Output token limit hit on conversation ${conversationId} — resuming automatically (attempt ${retryCount + 1}/${MAX_TOKEN_LIMIT_RETRIES})`,
+        );
+        return await sendMessage(conversationId, TOKEN_LIMIT_CONTINUATION_PROMPT, {
+          ...options,
+          tokenLimitRetryCount: retryCount + 1,
+        });
+      }
     }
 
     if (broadcastFn) {

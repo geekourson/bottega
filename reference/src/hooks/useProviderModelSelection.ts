@@ -17,12 +17,14 @@ import { useConnectedProviders } from '../contexts/ConnectedProvidersContext';
 import type { Provider } from '../../shared/providers/types';
 import type { OpenCodeModelEntry } from '../../shared/api/openCodeAuth';
 import type { OllamaModelEntry } from '../../shared/api/ollamaAuth';
+import type { LocalAiModelEntry } from '../../shared/api/localAiAuth';
 
 export const PROVIDER_LABELS: Record<Provider, string> = {
   anthropic: 'Claude',
   openai: 'OpenAI',
   opencode: 'OpenCode',
   ollama: 'Ollama',
+  'local-ai': 'Local AI',
 };
 
 // Static labels for the two enum-backed providers. OpenCode labels come from
@@ -40,12 +42,16 @@ export function firstModelFor(
   p: Provider,
   openCodeModels: OpenCodeModelEntry[] | null,
   ollamaModels?: OllamaModelEntry[] | null,
+  localAiModels?: LocalAiModelEntry[] | null,
 ): string {
   if (p === 'opencode') {
     return openCodeModels && openCodeModels.length > 0 ? openCodeModels[0]!.id : '';
   }
   if (p === 'ollama') {
     return ollamaModels && ollamaModels.length > 0 ? ollamaModels[0]!.id : '';
+  }
+  if (p === 'local-ai') {
+    return localAiModels && localAiModels.length > 0 ? localAiModels[0]!.id : '';
   }
   return (MODELS_FOR_UI[p] as readonly string[])[0] ?? '';
 }
@@ -103,6 +109,9 @@ export function useProviderModelSelection(): ProviderModelSelection {
   // Live Ollama model list: null = not yet fetched, [] = Ollama not running.
   const [ollamaModels, setOllamaModels] = useState<OllamaModelEntry[] | null>(null);
   const [loadingOllamaModels, setLoadingOllamaModels] = useState(false);
+  // Live Local AI model list: null = not yet fetched, [] = server not running.
+  const [localAiModels, setLocalAiModels] = useState<LocalAiModelEntry[] | null>(null);
+  const [loadingLocalAiModels, setLoadingLocalAiModels] = useState(false);
 
   // Best-effort fetch of the per-user OpenCode catalog. Returns [] (not an
   // error) when the user has no Zen key, mirroring the settings UI.
@@ -136,6 +145,21 @@ export function useProviderModelSelection(): ProviderModelSelection {
     }
   }, []);
 
+  const loadLocalAiModels = useCallback(async () => {
+    setLoadingLocalAiModels(true);
+    try {
+      const res = await api.localAiAuth.models();
+      if (!res.ok) { setLocalAiModels([]); return; }
+      const body = await res.json();
+      setLocalAiModels(body.models);
+      setModel((prev) => (prev === '' && body.models.length > 0 ? body.models[0]!.id : prev));
+    } catch {
+      setLocalAiModels([]);
+    } finally {
+      setLoadingLocalAiModels(false);
+    }
+  }, []);
+
   // Switch provider + reset the model to that provider's first option.
   // For dynamic-catalog providers (OpenCode, Ollama) this kicks off the
   // lazy catalog fetch on first use.
@@ -156,11 +180,18 @@ export function useProviderModelSelection(): ProviderModelSelection {
         } else {
           setModel(firstModelFor('ollama', null, ollamaModels));
         }
+      } else if (next === 'local-ai') {
+        if (localAiModels === null) {
+          setModel('');
+          void loadLocalAiModels();
+        } else {
+          setModel(firstModelFor('local-ai', null, null, localAiModels));
+        }
       } else {
-        setModel(firstModelFor(next, openCodeModels, ollamaModels));
+        setModel(firstModelFor(next, openCodeModels, ollamaModels, localAiModels));
       }
     },
-    [openCodeModels, ollamaModels, loadOpenCodeModels, loadOllamaModels],
+    [openCodeModels, ollamaModels, localAiModels, loadOpenCodeModels, loadOllamaModels, loadLocalAiModels],
   );
 
   const handleProviderChange = useCallback(
@@ -187,8 +218,11 @@ export function useProviderModelSelection(): ProviderModelSelection {
     } else if (preferred === 'ollama' && ollamaModels === null && !loadingOllamaModels) {
       setModel('');
       void loadOllamaModels();
+    } else if (preferred === 'local-ai' && localAiModels === null && !loadingLocalAiModels) {
+      setModel('');
+      void loadLocalAiModels();
     }
-  }, [connected, provider, openCodeModels, loadingOpenCodeModels, ollamaModels, loadingOllamaModels, applyProvider, loadOpenCodeModels, loadOllamaModels]);
+  }, [connected, provider, openCodeModels, loadingOpenCodeModels, ollamaModels, loadingOllamaModels, localAiModels, loadingLocalAiModels, applyProvider, loadOpenCodeModels, loadOllamaModels, loadLocalAiModels]);
 
   // Options for the model dropdown — static enum for anthropic/openai,
   // live catalog for opencode and ollama (empty until fetched).
@@ -205,11 +239,17 @@ export function useProviderModelSelection(): ProviderModelSelection {
         label: m.name + (m.size ? ` (${m.size})` : ''),
       }));
     }
+    if (provider === 'local-ai') {
+      return (localAiModels ?? []).map((m) => ({
+        value: m.id,
+        label: m.name,
+      }));
+    }
     return (MODELS_FOR_UI[provider] as readonly string[]).map((m) => ({
       value: m,
       label: MODEL_LABELS[m] ?? m,
     }));
-  }, [provider, openCodeModels, ollamaModels]);
+  }, [provider, openCodeModels, ollamaModels, localAiModels]);
 
   // `reset` must keep a STABLE identity: callers wire it into open/close
   // effects (e.g. `[isOpen, resetProviderModel]`). If its identity changed when

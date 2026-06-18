@@ -11,6 +11,7 @@ import { anthropicCredentialStore } from './anthropic.js';
 import { codexCredentialStore } from './openai.js';
 import { openCodeCredentialStore } from './opencode.js';
 import { ollamaCredentialStore } from './ollama.js';
+import { localAiCredentialStore } from './local-ai.js';
 import type { ProviderCredentialStore } from './types.js';
 
 const STORES = new Map<Provider, ProviderCredentialStore>();
@@ -54,3 +55,4 @@ registerCredentialStore('anthropic', anthropicCredentialStore);
 registerCredentialStore('openai', codexCredentialStore);
 registerCredentialStore('opencode', openCodeCredentialStore);
 registerCredentialStore('ollama', ollamaCredentialStore);
+registerCredentialStore('local-ai', localAiCredentialStore);

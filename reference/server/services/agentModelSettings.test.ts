@@ -73,11 +73,15 @@ describe('loadAgentModelSettings (per-user)', () => {
     expect(() => loadAgentModelSettings(USER)).toThrow(MissingUserAgentSettingsError);
   });
 
-  it('throws when an agent entry is missing (partial blob)', () => {
+  it('fills defaults when an agent entry is missing (partial blob)', () => {
     vi.mocked(userAgentModelSettingsDb.getRaw).mockReturnValue(
       JSON.stringify({ planification: { provider: 'anthropic', model: 'sonnet', effort: 'high' } }),
     );
-    expect(() => loadAgentModelSettings(USER)).toThrow(MissingUserAgentSettingsError);
+    const result = loadAgentModelSettings(USER);
+    expect(result.planification).toEqual({ provider: 'anthropic', model: 'sonnet', effort: 'high' });
+    // Missing entries are filled with defaults rather than throwing
+    expect(result.implementation).toBeDefined();
+    expect(result.yolo).toBeDefined();
   });
 
   it('throws when an entry has an invalid model for its provider', () => {

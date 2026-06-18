@@ -13,6 +13,7 @@ import CodexAuthPanel from './CodexAuthPanel';
 import ClaudeAuthPanel from './ClaudeAuthPanel';
 import OpenCodeAuthPanel from './OpenCodeAuthPanel';
 import OllamaAuthPanel from './OllamaAuthPanel';
+import LocalAiAuthPanel from './LocalAiAuthPanel';
 import McpServersTab from './McpServersTab';
 import type { ProjectRow } from '../../shared/types/db';
 import type { ApiError } from '../../shared/api/_common';
@@ -728,6 +729,8 @@ function Settings({
                 <OpenCodeAuthPanel />
                 <div className="border-t border-border" />
                 <OllamaAuthPanel />
+                <div className="border-t border-border" />
+                <LocalAiAuthPanel />
               </div>
             )}
 

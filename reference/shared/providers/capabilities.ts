@@ -14,6 +14,15 @@
 import type { Provider, ProviderCapabilities } from './types.js';
 
 export const CAPABILITIES_BY_PROVIDER: Record<Provider, ProviderCapabilities> = {
+  'local-ai': {
+    // Same constraints as Ollama — local inference servers don't support
+    // Claude-specific extensions in v1.
+    supportsAskUserQuestion: false,
+    supportsThinkingDelta: false,
+    supportsContextUsageBreakdown: false,
+    supportsMcpServers: false,
+    supportsImages: false,
+  },
   ollama: {
     // Ollama uses the Claude Code SDK pointed at a local Anthropic-compatible
     // API. The local models don't support Claude-specific extensions

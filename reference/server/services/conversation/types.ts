@@ -58,6 +58,12 @@ export interface ConversationOptions {
    * set this — it exists only to prevent the retry from retrying itself.
    */
   isAuthRetry?: boolean | undefined;
+  /**
+   * Internal: how many automatic continuations have already been attempted for
+   * this turn's output-token-limit truncation (see `retryOn401.ts`). External
+   * callers must not set this — it exists only to bound the retry chain.
+   */
+  tokenLimitRetryCount?: number | undefined;
 }
 
 export interface StreamingContext {

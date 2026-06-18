@@ -143,6 +143,10 @@ export function buildOllamaSdkEnv(
   userId: number | string | undefined,
 ): Record<string, string | undefined> {
   const { url } = readOllamaUrl(userId);
+  const maxTokens = readOllamaMaxTokens(userId);
+  console.log(
+    `[OllamaCredentials] buildOllamaSdkEnv userId=${userId} CLAUDE_CODE_MAX_OUTPUT_TOKENS=${maxTokens} url=${url}`,
+  );
   return {
     ANTHROPIC_BASE_URL: url,
     // Claude CLI requires a non-empty API key even when routing to Ollama.
@@ -160,7 +164,7 @@ export function buildOllamaSdkEnv(
     // Ollama models can produce longer outputs than Anthropic models.
     // The default 32 000-token cap causes "response exceeded maximum" errors.
     // The value is configurable per-user via Settings → Providers → Ollama.
-    CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(readOllamaMaxTokens(userId)),
+    CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxTokens),
   };
 }
 

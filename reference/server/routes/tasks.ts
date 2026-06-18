@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import { promises as fs } from 'fs';
 import fsSync from 'fs';
-import { tasksDb, conversationsDb, agentRunsDb } from '../database/db.js';
+import { db, tasksDb, conversationsDb, agentRunsDb } from '../database/db.js';
 import { purgeConversationMessages } from '../services/conversationContentStore.js';
 import { hasProjectAccess, getProject } from '../services/projectService.js';
 import { getAllTasks } from '../services/taskService.js';
@@ -1134,6 +1134,67 @@ router.delete(
     } catch (error) {
       console.error('Error discarding worktree:', error);
       res.status(500).json({ error: 'Failed to discard worktree' } satisfies ApiError);
+    }
+  },
+);
+
+router.delete(
+  '/tasks/:id/reset',
+  validateParams(IdParamsSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const { id: taskId } = req.validated!.params as IdParams;
+
+      const taskWithProject = tasksDb.getWithProject(taskId);
+      if (!taskWithProject) {
+        return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
+      }
+      if (!hasProjectAccess(taskWithProject.project_id, userId)) {
+        return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
+      }
+
+      // Stop any running agents first
+      forceCompleteRunningAgents(taskId);
+
+      // Delete all conversations (with message purge)
+      const conversations = conversationsDb.getByTask(taskId);
+      let conversationsDeleted = 0;
+      for (const conversation of conversations) {
+        try {
+          await purgeConversationMessages(conversation, taskWithProject.repo_folder_path);
+        } catch (err) {
+          console.error(`Failed to purge messages for conversation ${conversation.id}:`, err);
+        }
+        conversationsDb.delete(conversation.id);
+        conversationsDeleted++;
+      }
+
+      // Delete all agent runs
+      const agentRuns = agentRunsDb.getByTask(taskId);
+      let agentRunsDeleted = 0;
+      for (const run of agentRuns) {
+        agentRunsDb.delete(run.id);
+        agentRunsDeleted++;
+      }
+
+      // Reset workflow flags and status
+      db.prepare(
+        `UPDATE tasks
+         SET workflow_complete = 0,
+             workflow_blocked = 0,
+             pr_agent_complete = 0,
+             refinement_complete = 0,
+             workflow_run_count = 0,
+             status = 'pending',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`
+      ).run(taskId);
+
+      res.json({ success: true, conversationsDeleted, agentRunsDeleted });
+    } catch (error) {
+      console.error('Error resetting task:', error);
+      res.status(500).json({ error: 'Failed to reset task' } satisfies ApiError);
     }
   },
 );

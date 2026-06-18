@@ -34,6 +34,16 @@ export type OllamaModel = `ollama/${string}`;
 export const OLLAMA_EFFORTS = [] as const;
 export type OllamaEffort = never;
 
+// Local AI covers any local inference server with an Anthropic-compatible API:
+// llama-server (llama.cpp), LM Studio, Jan.ai, etc.
+// Like Ollama, the catalog is dynamic (fetched via GET /v1/models), no effort
+// dimension, and models are persisted as `local-ai/<modelId>`.
+export const LOCAL_AI_MODELS = [] as const;
+export type LocalAiModel = `local-ai/${string}`;
+
+export const LOCAL_AI_EFFORTS = [] as const;
+export type LocalAiEffort = never;
+
 export const ANTHROPIC_MODELS = ['sonnet', 'opus'] as const;
 export type AnthropicModel = (typeof ANTHROPIC_MODELS)[number];
 
@@ -72,7 +82,7 @@ export type OpenCodeModel = `opencode/${string}`;
 export const OPENCODE_EFFORTS = [] as const;
 export type OpenCodeEffort = never;
 
-export const PROVIDERS = ['anthropic', 'openai', 'opencode', 'ollama'] as const;
+export const PROVIDERS = ['anthropic', 'openai', 'opencode', 'ollama', 'local-ai'] as const;
 
 /**
  * Return the model list for a provider. Used by the settings UI and
@@ -83,6 +93,7 @@ export function modelsForProvider(provider: Provider): readonly string[] {
   if (provider === 'anthropic') return ANTHROPIC_MODELS;
   if (provider === 'openai') return OPENAI_MODELS;
   if (provider === 'ollama') return OLLAMA_MODELS;
+  if (provider === 'local-ai') return LOCAL_AI_MODELS;
   return OPENCODE_MODELS;
 }
 
@@ -90,6 +101,7 @@ export function effortsForProvider(provider: Provider): readonly string[] {
   if (provider === 'anthropic') return ANTHROPIC_EFFORTS;
   if (provider === 'openai') return OPENAI_EFFORTS;
   if (provider === 'ollama') return OLLAMA_EFFORTS;
+  if (provider === 'local-ai') return LOCAL_AI_EFFORTS;
   return OPENCODE_EFFORTS;
 }
 
@@ -140,16 +152,29 @@ export function isOllamaEffort(value: unknown): value is OllamaEffort {
   return false;
 }
 
+// Prefix-only check — the local AI catalog is whatever models the server has
+// loaded. Anything past `local-ai/` is opaque to Bottega.
+export function isLocalAiModel(value: unknown): value is LocalAiModel {
+  return typeof value === 'string' && value.startsWith('local-ai/') && value.length > 'local-ai/'.length;
+}
+
+export function isLocalAiEffort(value: unknown): value is LocalAiEffort {
+  // Local AI servers have no reasoning-effort knob.
+  void value;
+  return false;
+}
+
 /** True when `model` is a valid model for `provider`. */
 export function isModelForProvider(
   provider: Provider,
   model: unknown,
 ): model is string {
   if (typeof model !== 'string') return false;
-  // OpenCode and Ollama use dynamic catalogs fetched live; enforce only
-  // the prefix shape. Anthropic and OpenAI use static enums.
+  // OpenCode, Ollama, and Local AI use dynamic catalogs fetched live; enforce
+  // only the prefix shape. Anthropic and OpenAI use static enums.
   if (provider === 'opencode') return isOpenCodeModel(model);
   if (provider === 'ollama') return isOllamaModel(model);
+  if (provider === 'local-ai') return isLocalAiModel(model);
   return modelsForProvider(provider).includes(model);
 }
 

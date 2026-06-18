@@ -12,6 +12,7 @@ import { anthropicProvider } from './anthropic/index.js';
 import { codexProvider } from './openai/index.js';
 import { openCodeProvider } from './opencode/index.js';
 import { ollamaProvider } from './ollama/index.js';
+import { localAiProvider } from './local-ai/index.js';
 
 const PROVIDERS = new Map<Provider, LlmProvider>();
 
@@ -25,6 +26,7 @@ registerProvider('anthropic', anthropicProvider);
 registerProvider('openai', codexProvider);
 registerProvider('opencode', openCodeProvider);
 registerProvider('ollama', ollamaProvider);
+registerProvider('local-ai', localAiProvider);
 
 export function registerProvider(name: Provider, provider: LlmProvider): void {
   if (PROVIDERS.has(name)) {
