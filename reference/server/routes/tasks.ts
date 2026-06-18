@@ -28,6 +28,7 @@ import {
   mergeAndCleanup,
   hasUncommittedChanges,
   pushChanges,
+  getWorktreeDiff,
 } from '../services/worktree.js';
 import { createOrUpdatePR } from '../services/prService.js';
 import { switchWorktree } from '../services/webServerManager.js';
@@ -795,6 +796,33 @@ router.get(
       res
         .status(500)
         .json({ error: 'Failed to get worktree status' } satisfies ApiError);
+    }
+  },
+);
+
+router.get(
+  '/tasks/:id/diff',
+  validateParams(IdParamsSchema),
+  async (req: Request, res: Response<unknown>) => {
+    try {
+      const userId = req.user!.id;
+      const { id: taskId } = req.validated!.params as IdParams;
+
+      const taskWithProject = tasksDb.getWithProject(taskId);
+
+      if (!taskWithProject) {
+        return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
+      }
+
+      if (!hasProjectAccess(taskWithProject.project_id, userId)) {
+        return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
+      }
+
+      const result = await getWorktreeDiff(taskWithProject.repo_folder_path, taskId);
+      res.json(result);
+    } catch (error) {
+      console.error('Error getting worktree diff:', error);
+      res.status(500).json({ error: 'Failed to get diff' } satisfies ApiError);
     }
   },
 );

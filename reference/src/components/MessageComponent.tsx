@@ -226,6 +226,16 @@ const MessageComponent = memo<MessageComponentProps>(
         // Keep parsedInput as empty if parsing fails
       }
 
+      // Special rendering for Write tool — show file path + content badge
+      const isWrite = message.toolName === 'Write';
+      const isEdit = message.toolName === 'Edit';
+      const writeInput = isWrite || isEdit ? parsedInput as {
+        file_path?: string;
+        content?: string;
+        old_string?: string;
+        new_string?: string;
+      } : null;
+
       // Special rendering for TodoWrite tool
       const isTodoWrite = message.toolName === 'TodoWrite';
       const todos = isTodoWrite ? parsedInput.todos : undefined;
@@ -280,8 +290,43 @@ const MessageComponent = memo<MessageComponentProps>(
               <span className="font-medium">{message.toolName || 'Tool'}</span>
             </div>
 
-            {/* TodoWrite: render visual todo list */}
-            {todos && todos.length > 0 ? (
+            {/* Write / Edit: show file path + mini diff */}
+            {(isWrite || isEdit) && writeInput?.file_path ? (
+              <div className="mt-2">
+                <div className="text-xs font-mono text-blue-600 dark:text-blue-400 truncate mb-1">
+                  {writeInput.file_path.split('/').slice(-3).join('/')}
+                </div>
+                {isEdit && writeInput.old_string != null && writeInput.new_string != null ? (
+                  <details>
+                    <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
+                      Voir les modifications
+                    </summary>
+                    <div className="mt-1 rounded overflow-hidden text-xs font-mono border border-gray-200 dark:border-gray-700">
+                      {writeInput.old_string.split('\n').map((line, i) => (
+                        <div key={`r${i}`} className="bg-red-50 dark:bg-red-900/20 px-2 py-px whitespace-pre">
+                          <span className="text-red-500 mr-2 select-none">-</span>{line}
+                        </div>
+                      ))}
+                      {writeInput.new_string.split('\n').map((line, i) => (
+                        <div key={`a${i}`} className="bg-green-50 dark:bg-green-900/20 px-2 py-px whitespace-pre">
+                          <span className="text-green-500 mr-2 select-none">+</span>{line}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                ) : isWrite && writeInput.content ? (
+                  <details>
+                    <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
+                      Voir le contenu
+                    </summary>
+                    <pre className="mt-1 text-xs bg-gray-100 dark:bg-gray-900 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto">
+                      {writeInput.content}
+                    </pre>
+                  </details>
+                ) : null}
+              </div>
+            ) : /* TodoWrite: render visual todo list */
+            todos && todos.length > 0 ? (
               <div className="mt-3">
                 <TodoList todos={todos} />
               </div>

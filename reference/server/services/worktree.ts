@@ -630,3 +630,41 @@ export async function pushChanges(
     return { success: false, error: message };
   }
 }
+
+/**
+ * Get a unified diff of all changes in the worktree compared to origin/main.
+ * Includes both committed (in the branch) and uncommitted changes.
+ */
+export async function getWorktreeDiff(
+  repoPath: string,
+  taskId: number,
+): Promise<{ success: true; diff: string } | { success: false; error: string }> {
+  const worktreePath = getWorktreePath(repoPath, taskId);
+
+  try {
+    await fs.promises.access(worktreePath);
+    const mainBranch = assertValidBranchName(await getDefaultBranch(repoPath), 'default branch');
+
+    let diff = '';
+    try {
+      const { stdout } = await runCommand(
+        'git',
+        ['diff', `origin/${mainBranch}`],
+        { cwd: worktreePath },
+      );
+      diff = stdout;
+    } catch {
+      try {
+        const { stdout } = await runCommand('git', ['diff', 'HEAD'], { cwd: worktreePath });
+        diff = stdout;
+      } catch {
+        diff = '';
+      }
+    }
+
+    return { success: true, diff };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}

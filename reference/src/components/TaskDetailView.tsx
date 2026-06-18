@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { FileText, ArrowLeft, ChevronDown, Check, CheckCircle2, GitBranch, ExternalLink, GitMerge, Copy, ArrowUpRight, ArrowDownLeft, Upload, Server, ArrowDownToLine, Loader2, AlertCircle, X } from 'lucide-react';
+import { FileText, ArrowLeft, ChevronDown, Check, CheckCircle2, GitBranch, ExternalLink, GitMerge, Copy, ArrowUpRight, ArrowDownLeft, Upload, Server, ArrowDownToLine, Loader2, AlertCircle, X, GitCompareArrows } from 'lucide-react';
 import { Button } from './ui/button';
 import Breadcrumb from './Breadcrumb';
 import MarkdownEditor from './MarkdownEditor';
@@ -17,6 +17,7 @@ import ConversationList from './ConversationList';
 import AgentSection from './AgentSection';
 import ReviewRecording from './ReviewRecording';
 import CIFixModal from './CIFixModal';
+import DiffViewer from './DiffViewer';
 import { cn } from '../lib/utils';
 import { api } from '../utils/api';
 import { cleanupWorktreeOnComplete } from '../utils/worktreeCleanup';
@@ -169,6 +170,12 @@ function TaskDetailView({
   // Web server state
   const [webServerStatus, setWebServerStatus] = useState<WebServerStatus | null>(null);
   const [isSwitchingServer, setIsSwitchingServer] = useState(false);
+
+  // Right panel tab + diff state
+  const [rightTab, setRightTab] = useState<'docs' | 'changes'>('docs');
+  const [diff, setDiff] = useState<string | null>(null);
+  const [isLoadingDiff, setIsLoadingDiff] = useState(false);
+  const [diffError, setDiffError] = useState<string | null>(null);
 
   // Fetch worktree status when task changes
   useEffect(() => {
@@ -617,6 +624,36 @@ Please:
     }
   };
 
+  const loadDiff = useCallback(async () => {
+    if (!task?.id) return;
+    setIsLoadingDiff(true);
+    setDiffError(null);
+    try {
+      const response = await api.tasks.getDiff(task.id);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setDiff(data.diff);
+        } else {
+          setDiffError((data as { error?: string }).error ?? 'Impossible de récupérer le diff');
+        }
+      } else {
+        setDiffError('Impossible de récupérer le diff');
+      }
+    } catch {
+      setDiffError('Erreur lors de la récupération du diff');
+    } finally {
+      setIsLoadingDiff(false);
+    }
+  }, [task?.id]);
+
+  const handleTabChange = (tab: 'docs' | 'changes') => {
+    setRightTab(tab);
+    if (tab === 'changes' && diff === null && !isLoadingDiff) {
+      void loadDiff();
+    }
+  };
+
   return (
     <div className={cn('min-h-full md:h-full flex flex-col', className)}>
       {/* Header with breadcrumb */}
@@ -1016,25 +1053,66 @@ Please:
         </div>
 
         {/* Right panel - Documentation and Agents */}
-        <div className="flex-1 flex flex-col min-h-0 min-w-0 md:overflow-y-auto flex-shrink-0">
-          <MarkdownEditor
-            content={taskDoc}
-            onSave={onSaveTaskDoc}
-            onEditClick={onEditDocumentation}
-            onShowClick={onShowDocumentation}
-            isLoading={isLoadingDoc}
-            placeholder="No task documentation yet. Click Edit to describe what needs to be done."
-            className="md:flex-1 md:min-h-0"
-          />
-          <AgentSection
-            agentRuns={agentRuns}
-            isLoading={isLoadingAgentRuns}
-            onRunAgent={onRunAgent}
-            onResumeAgent={handleResumeAgent}
-            yoloMode={task.yolo_mode === 1}
-            className="flex-shrink-0"
-          />
-          <ReviewRecording taskId={task.id} className="flex-shrink-0" />
+        <div className="flex-1 flex flex-col min-h-0 min-w-0 flex-shrink-0">
+          {/* Tab bar */}
+          <div className="flex border-b border-border flex-shrink-0">
+            <button
+              onClick={() => handleTabChange('docs')}
+              className={cn(
+                'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors',
+                rightTab === 'docs'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+              )}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Documentation
+            </button>
+            <button
+              onClick={() => handleTabChange('changes')}
+              className={cn(
+                'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors',
+                rightTab === 'changes'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+              )}
+            >
+              <GitCompareArrows className="w-3.5 h-3.5" />
+              Changes
+            </button>
+          </div>
+
+          {rightTab === 'docs' ? (
+            <div className="flex-1 flex flex-col min-h-0 md:overflow-y-auto">
+              <MarkdownEditor
+                content={taskDoc}
+                onSave={onSaveTaskDoc}
+                onEditClick={onEditDocumentation}
+                onShowClick={onShowDocumentation}
+                isLoading={isLoadingDoc}
+                placeholder="No task documentation yet. Click Edit to describe what needs to be done."
+                className="md:flex-1 md:min-h-0"
+              />
+              <AgentSection
+                agentRuns={agentRuns}
+                isLoading={isLoadingAgentRuns}
+                onRunAgent={onRunAgent}
+                onResumeAgent={handleResumeAgent}
+                yoloMode={task.yolo_mode === 1}
+                className="flex-shrink-0"
+              />
+              <ReviewRecording taskId={task.id} className="flex-shrink-0" />
+            </div>
+          ) : (
+            <div className="flex-1 min-h-0">
+              <DiffViewer
+                diff={diff}
+                isLoading={isLoadingDiff}
+                error={diffError}
+                onRefresh={loadDiff}
+              />
+            </div>
+          )}
         </div>
       </div>
 

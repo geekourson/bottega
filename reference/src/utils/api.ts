@@ -71,6 +71,7 @@ import type {
   PushChangesRequest,
   PushChangesResponse,
   DiscardWorktreeResponse,
+  GetDiffResponse,
 } from '../../shared/api/tasks';
 import type { TaskStatus } from '../../shared/types/db';
 import type {
@@ -506,6 +507,8 @@ export const api = {
         body: JSON.stringify(body),
       });
     },
+    getDiff: (id: number): TypedFetch<GetDiffResponse> =>
+      authenticatedFetch<GetDiffResponse>(`/api/tasks/${id}/diff`),
     // Review recording — HEAD-only check; the body is the binary stream.
     checkReviewRecording: (taskId: number): TypedFetch<unknown> =>
       authenticatedFetch<unknown>(`/api/tasks/${taskId}/review-recording`, { method: 'HEAD' }),

@@ -233,6 +233,12 @@ export type MergeAndCleanupResponse =
     }
   | { success: false; error: string };
 
+// ---- Diff ----------------------------------------------------------------
+
+export type GetDiffResponse =
+  | { success: true; diff: string }
+  | { success: false; error: string };
+
 // ---- Type-level smoke checks ---------------------------------------------
 
 expectType<TaskRow['status']>('pending');
