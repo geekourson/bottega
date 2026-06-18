@@ -638,11 +638,33 @@ export async function pushChanges(
 export async function getWorktreeDiff(
   repoPath: string,
   taskId: number,
-): Promise<{ success: true; diff: string } | { success: false; error: string }> {
+): Promise<{ success: true; diff: string } | { success: false; error: string; code?: string }> {
   const worktreePath = getWorktreePath(repoPath, taskId);
 
+  const worktreeFound = await fs.promises.access(worktreePath).then(() => true).catch((err) => {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
+  });
+
+  if (!worktreeFound) {
+    // Fallback: show uncommitted changes in the main repo (non-git project has no diff)
+    const isGit = await isGitRepository(repoPath);
+    if (!isGit) {
+      return { success: false, error: 'worktree_not_found', code: 'WORKTREE_NOT_FOUND' };
+    }
+    try {
+      const [{ stdout: unstaged }, { stdout: staged }] = await Promise.all([
+        runCommand('git', ['diff'], { cwd: repoPath }).catch(() => ({ stdout: '' })),
+        runCommand('git', ['diff', '--staged'], { cwd: repoPath }).catch(() => ({ stdout: '' })),
+      ]);
+      return { success: true, diff: staged + unstaged };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
+    }
+  }
+
   try {
-    await fs.promises.access(worktreePath);
     const mainBranch = assertValidBranchName(await getDefaultBranch(repoPath), 'default branch');
 
     let diff = '';

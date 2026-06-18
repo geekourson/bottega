@@ -44,6 +44,7 @@ export interface StartAgentRunOptions {
     comments?: unknown;
     [key: string]: unknown;
   } | undefined;
+  userInstructions?: string | undefined;
 }
 
 export interface StartAgentRunResult {
@@ -128,6 +129,7 @@ export async function startAgentRun(
       message = await generatePoMessage(
         taskWithProject.project_id,
         taskWithProject.repo_folder_path,
+        options.userInstructions,
       );
       break;
     case 'ux_design':

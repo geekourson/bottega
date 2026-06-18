@@ -1,10 +1,17 @@
 import express, { type Request, type Response } from 'express';
+import { z } from 'zod';
 import { tasksDb } from '../database/db.js';
 import { getProject } from '../services/projectService.js';
 import { startAgentRun } from '../services/agentRunner.js';
 import { ProviderCredentialsMissingError } from '../services/credentials/types.js';
+import { validateBody } from '../middleware/validate.js';
 import type { ApiError } from '../../shared/api/_common.js';
 import type { ServerToClientMessage } from '../../shared/websocket/messages.js';
+
+const StartPoSessionBodySchema = z.object({
+  instructions: z.string().max(2000).optional(),
+});
+type StartPoSessionBody = z.infer<typeof StartPoSessionBodySchema>;
 
 const router = express.Router();
 
@@ -22,6 +29,7 @@ export interface StartPoSessionResponse {
  */
 router.post(
   '/projects/:projectId/po-sessions',
+  validateBody(StartPoSessionBodySchema),
   async (
     req: Request<{ projectId: string }>,
     res: Response<StartPoSessionResponse | ApiError>,
@@ -29,6 +37,7 @@ router.post(
     try {
       const userId = req.user!.id;
       const projectId = parseInt(req.params.projectId, 10);
+      const { instructions } = req.validated!.body as StartPoSessionBody;
 
       if (isNaN(projectId)) {
         return res.status(400).json({ error: 'Invalid project ID' });
@@ -59,6 +68,7 @@ router.post(
         broadcastFn,
         broadcastToTaskSubscribersFn,
         userId,
+        userInstructions: instructions,
       });
 
       res.status(201).json({

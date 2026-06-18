@@ -660,11 +660,13 @@ Please:
     try {
       const response = await api.tasks.getDiff(task.id);
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json() as { success: boolean; diff?: string; error?: string; code?: string };
         if (data.success) {
-          setDiff(data.diff);
+          setDiff(data.diff ?? '');
+        } else if (data.code === 'WORKTREE_NOT_FOUND') {
+          setDiffError('WORKTREE_NOT_FOUND');
         } else {
-          setDiffError((data as { error?: string }).error ?? 'Impossible de récupérer le diff');
+          setDiffError(data.error ?? 'Impossible de récupérer le diff');
         }
       } else {
         setDiffError('Impossible de récupérer le diff');

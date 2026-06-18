@@ -37,6 +37,7 @@ import { useTasksLiveSubscriptions } from '../../hooks/useTasksLiveSubscriptions
 import BoardColumn from './BoardColumn';
 import TaskForm from '../TaskForm';
 import AskQuestionModal, { type AskQuestionPayload } from '../AskQuestionModal';
+import PoSessionModal from '../PoSessionModal';
 import type { AgentRunRow, ProjectRow, TaskRow, TaskStatus } from '../../../shared/types/db';
 import type { ServerMessageOf } from '../../../shared/websocket/messages';
 import type { CreateTaskRequest } from '../../../shared/api/tasks';
@@ -91,6 +92,7 @@ function BoardView({ className, project }: BoardViewProps) {
   const [isAsking, setIsAsking] = useState(false);
 
   // PO session state
+  const [showPoSessionModal, setShowPoSessionModal] = useState(false);
   const [isStartingPoSession, setIsStartingPoSession] = useState(false);
 
   // Batch "run all pending agents" state
@@ -401,13 +403,15 @@ function BoardView({ className, project }: BoardViewProps) {
   );
 
   // Handle PO session: create PO task + start PO agent + navigate to chat
-  const handleStartPoSession = useCallback(async () => {
+  const handleStartPoSession = useCallback(async (instructions: string) => {
     if (!project) return;
-    if (!requireClaudeAuth()) return;
+    setShowPoSessionModal(false);
     setIsStartingPoSession(true);
     try {
       const response = await authenticatedFetch(`/api/projects/${project.id}/po-sessions`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instructions: instructions || undefined }),
       });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
@@ -421,7 +425,7 @@ function BoardView({ className, project }: BoardViewProps) {
     } finally {
       setIsStartingPoSession(false);
     }
-  }, [project, requireClaudeAuth, navigate]);
+  }, [project, navigate]);
 
   // Handle "Run all pending": batch-start the first pipeline agent on every
   // pending task. The backend auto-chaining then carries each task forward.
@@ -567,7 +571,10 @@ function BoardView({ className, project }: BoardViewProps) {
             <Button
               variant="outline"
               size="sm"
-              onClick={handleStartPoSession}
+              onClick={() => {
+                if (!requireClaudeAuth()) return;
+                setShowPoSessionModal(true);
+              }}
               disabled={isStartingPoSession}
               className="flex-shrink-0"
               title="Start a PO planning session to propose tasks for the next sprint"
@@ -719,6 +726,15 @@ function BoardView({ className, project }: BoardViewProps) {
         onSubmit={handleAskQuestion}
         projectName={project?.name}
         isSubmitting={isAsking}
+      />
+
+      {/* PO Session Modal */}
+      <PoSessionModal
+        isOpen={showPoSessionModal}
+        onClose={() => setShowPoSessionModal(false)}
+        onSubmit={handleStartPoSession}
+        projectName={project?.name}
+        isSubmitting={isStartingPoSession}
       />
     </div>
   );

@@ -10,6 +10,7 @@
 
 {{existingTasks}}
 
+{{userInstructions}}
 ## Your mission
 
 1. **Explore the project** — read the README, browse the directory structure, and look at key source files to understand what the product does, its tech stack, and its current state.

@@ -187,7 +187,14 @@ export default function DiffViewer({ diff, isLoading, error, onRefresh }: DiffVi
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {error && (
+        {error === 'WORKTREE_NOT_FOUND' && (
+          <div className="text-sm text-muted-foreground text-center py-8">
+            Aucun worktree créé pour cette tâche.<br />
+            <span className="text-xs">Démarrez un agent pour initialiser l'environnement de travail.</span>
+          </div>
+        )}
+
+        {error && error !== 'WORKTREE_NOT_FOUND' && (
           <div className="text-sm text-red-600 dark:text-red-400 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg">
             {error}
           </div>

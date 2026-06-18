@@ -51,6 +51,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
 import cors from 'cors';
 import { promises as fsPromises } from 'fs';
+import { execFile } from 'child_process';
 
 import { getAllActiveStreamingSessions, getAwaitingQuestionTaskIds } from './services/conversationAdapter.js';
 import { listConfiguredMcpServers, probeMcpServers, addConfiguredMcpServer } from './services/mcpStatus.js';
@@ -365,6 +366,20 @@ app.get('/api/projects/:id/files', authenticateToken, async (req: Request, res: 
       return;
     }
 
+    const dirExists = await fsPromises
+      .access(project.repo_folder_path)
+      .then(() => true)
+      .catch(() => false);
+
+    if (!dirExists) {
+      await fsPromises.mkdir(project.repo_folder_path, { recursive: true });
+      await new Promise<void>((resolve, reject) => {
+        execFile('git', ['-C', project.repo_folder_path, 'init'], (err) =>
+          err ? reject(err) : resolve(),
+        );
+      });
+    }
+
     const fileTree = await getFileTree(project.repo_folder_path, 4, 0, false);
     res.json(fileTree);
   } catch (error) {
@@ -533,7 +548,7 @@ async function getFileTree(
     }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code !== 'EACCES' && code !== 'EPERM') {
+    if (code !== 'EACCES' && code !== 'EPERM' && code !== 'ENOENT') {
       console.error('Error reading directory:', error);
     }
   }

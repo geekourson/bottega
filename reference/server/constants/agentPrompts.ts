@@ -237,6 +237,7 @@ export async function generateUxDesignMessage(
 export async function generatePoMessage(
   projectId: number,
   repoPath: string,
+  userInstructionsRaw?: string,
 ): Promise<string> {
   const tasks = tasksDb.getByProject(projectId);
 
@@ -252,7 +253,12 @@ export async function generatePoMessage(
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const createTaskScriptPath = path.resolve(scriptDir, '../../scripts/create-task.ts');
 
-  return renderPrompt('po', { projectId, repoPath, existingTasks, createTaskScriptPath });
+  const trimmed = userInstructionsRaw?.trim();
+  const userInstructions = trimmed
+    ? `## Focus instructions from the user\n\n${trimmed}\n\n`
+    : '';
+
+  return renderPrompt('po', { projectId, repoPath, existingTasks, createTaskScriptPath, userInstructions });
 }
 
 /**

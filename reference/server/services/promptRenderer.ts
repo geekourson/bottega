@@ -118,7 +118,7 @@ const PROMPT_DEFINITIONS: PromptDefinition[] = [
     label: 'PO Session',
     kind: 'prompt',
     file: 'po.md',
-    variables: ['projectId', 'repoPath', 'existingTasks', 'createTaskScriptPath'],
+    variables: ['projectId', 'repoPath', 'existingTasks', 'createTaskScriptPath', 'userInstructions'],
   },
 ];
 
