@@ -138,6 +138,7 @@ import type {
   OllamaAuthStatusResponse,
   OllamaModelsResponse,
   SetOllamaUrlResponse,
+  SetOllamaMaxTokensResponse,
 } from '../../shared/api/ollamaAuth';
 import type {
   ConnectedProvidersResponse,
@@ -303,6 +304,11 @@ export const api = {
     clear: (): TypedFetch<ClearOllamaUrlResponse> =>
       authenticatedFetch<ClearOllamaUrlResponse>('/api/ollama-auth/url', {
         method: 'DELETE',
+      }),
+    setMaxTokens: (maxOutputTokens: number): TypedFetch<SetOllamaMaxTokensResponse> =>
+      authenticatedFetch<SetOllamaMaxTokensResponse>('/api/ollama-auth/max-tokens', {
+        method: 'PUT',
+        body: JSON.stringify({ maxOutputTokens }),
       }),
     models: (): TypedFetch<OllamaModelsResponse> =>
       authenticatedFetch<OllamaModelsResponse>('/api/ollama-auth/models'),

@@ -16,6 +16,7 @@ import path from 'path';
 import os from 'os';
 
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
+const DEFAULT_MAX_OUTPUT_TOKENS = 64000;
 
 export class OllamaCredentialsError extends Error {
   constructor(message: string) {
@@ -24,9 +25,17 @@ export class OllamaCredentialsError extends Error {
   }
 }
 
-function resolveUrlFilePath(userId: number | string | undefined): string {
+function resolveUserDir(userId: number | string | undefined): string {
   const id = userId != null ? String(userId) : 'unknown';
-  return path.join(os.homedir(), '.config', 'bottega', 'users', id, 'ollama-url');
+  return path.join(os.homedir(), '.config', 'bottega', 'users', id);
+}
+
+function resolveUrlFilePath(userId: number | string | undefined): string {
+  return path.join(resolveUserDir(userId), 'ollama-url');
+}
+
+function resolveMaxTokensFilePath(userId: number | string | undefined): string {
+  return path.join(resolveUserDir(userId), 'ollama-max-tokens');
 }
 
 export function resolveOllamaUrlPath(userId: number | string | undefined): string {
@@ -56,6 +65,26 @@ export async function writeOllamaUrl(
   return { urlPath };
 }
 
+export function readOllamaMaxTokens(userId: number | string | undefined): number {
+  const filePath = resolveMaxTokensFilePath(userId);
+  try {
+    const raw = readFileSync(filePath, 'utf8').trim();
+    const parsed = parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_OUTPUT_TOKENS;
+  } catch {
+    return DEFAULT_MAX_OUTPUT_TOKENS;
+  }
+}
+
+export async function writeOllamaMaxTokens(
+  userId: number | string | undefined,
+  tokens: number,
+): Promise<void> {
+  const filePath = resolveMaxTokensFilePath(userId);
+  await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  await fs.writeFile(filePath, String(tokens), { mode: 0o600 });
+}
+
 export async function clearOllamaUrl(
   userId: number | string | undefined,
 ): Promise<boolean> {
@@ -73,6 +102,7 @@ export interface OllamaAuthStatus {
   status: 'authenticated' | 'missing';
   urlPath: string;
   url: string;
+  maxOutputTokens: number;
   reason?: string;
 }
 
@@ -80,18 +110,20 @@ export async function getOllamaAuthStatus(
   userId: number | string | undefined,
 ): Promise<OllamaAuthStatus> {
   const { url, urlPath } = readOllamaUrl(userId);
+  const maxOutputTokens = readOllamaMaxTokens(userId);
   try {
     const res = await fetch(`${url}/api/tags`, {
       signal: AbortSignal.timeout(3000),
     });
     if (res.ok) {
-      return { authenticated: true, status: 'authenticated', urlPath, url };
+      return { authenticated: true, status: 'authenticated', urlPath, url, maxOutputTokens };
     }
     return {
       authenticated: false,
       status: 'missing',
       urlPath,
       url,
+      maxOutputTokens,
       reason: `Ollama returned HTTP ${res.status}`,
     };
   } catch (err) {
@@ -101,6 +133,7 @@ export async function getOllamaAuthStatus(
       status: 'missing',
       urlPath,
       url,
+      maxOutputTokens,
       reason: `Cannot reach Ollama at ${url}: ${message}`,
     };
   }
@@ -124,6 +157,10 @@ export function buildOllamaSdkEnv(
     // "abort session", killing the subprocess before any prompt is delivered.
     HOME: process.env.HOME,
     PATH: process.env.PATH,
+    // Ollama models can produce longer outputs than Anthropic models.
+    // The default 32 000-token cap causes "response exceeded maximum" errors.
+    // The value is configurable per-user via Settings → Providers → Ollama.
+    CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(readOllamaMaxTokens(userId)),
   };
 }
 

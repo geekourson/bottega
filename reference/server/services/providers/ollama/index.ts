@@ -30,6 +30,13 @@ import type {
 import type { LlmProvider, LoadTranscriptOptions } from '../types.js';
 import type { SDKMessage } from '@shared/sdk/transcript';
 
+const OLLAMA_CONCISENESS_NOTE =
+  'Be concise and direct. ' +
+  'Do not repeat or summarize content you just read. ' +
+  'Do not explain what you are about to do — just do it. ' +
+  'Write code changes in focused diffs, not entire files, unless the full file is strictly required. ' +
+  'Avoid verbose preambles, closing summaries, and redundant commentary.';
+
 export class InvalidOllamaModelError extends Error {
   constructor(received: string | undefined) {
     super(
@@ -95,6 +102,7 @@ export class OllamaProvider implements LlmProvider {
       ...(options.customSystemPrompt !== undefined
         ? { customSystemPrompt: options.customSystemPrompt }
         : {}),
+      systemPromptAppend: OLLAMA_CONCISENESS_NOTE,
       ...(options.env !== undefined ? { env: options.env } : {}),
       model: bareModel,
       effort: options.effort,

@@ -5,6 +5,7 @@ export interface OllamaAuthStatusResponse {
   status: 'authenticated' | 'missing';
   url: string;
   urlPath: string | null;
+  maxOutputTokens: number;
   reason?: string;
 }
 
@@ -19,6 +20,15 @@ export interface SetOllamaUrlResponse {
 
 export interface ClearOllamaUrlResponse {
   cleared: boolean;
+}
+
+export interface SetOllamaMaxTokensRequest {
+  maxOutputTokens: number;
+}
+
+export interface SetOllamaMaxTokensResponse {
+  ok: true;
+  maxOutputTokens: number;
 }
 
 export interface OllamaModelEntry {

@@ -54,6 +54,8 @@ export interface MapOptionsInput {
   cwd?: string | undefined;
   permissionMode?: PermissionMode | undefined;
   customSystemPrompt?: string | undefined;
+  /** Extra text appended to the system prompt (after customSystemPrompt or the preset append). */
+  systemPromptAppend?: string | undefined;
   canUseTool?: unknown;
   env?: Record<string, string | undefined> | undefined;
   /** Required — Claude turns always run on an explicit model (never the SDK default). */
@@ -112,14 +114,16 @@ export function mapOptionsToSDK(options: MapOptionsInput): SDKOptions {
     sdkOptions.effort = options.effort;
   }
 
+  const extraAppend = options.systemPromptAppend ? '\n\n' + options.systemPromptAppend : '';
+
   if (customSystemPrompt) {
     // Custom agents use full override - plain string replaces the entire system prompt
-    sdkOptions.systemPrompt = customSystemPrompt + ASK_USER_QUESTION_LIMIT_NOTE;
+    sdkOptions.systemPrompt = customSystemPrompt + ASK_USER_QUESTION_LIMIT_NOTE + extraAppend;
   } else {
     sdkOptions.systemPrompt = {
       type: 'preset',
       preset: 'claude_code',
-      append: ASK_USER_QUESTION_LIMIT_NOTE,
+      append: ASK_USER_QUESTION_LIMIT_NOTE + extraAppend,
     };
   }
 

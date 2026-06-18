@@ -17,6 +17,7 @@ export function OllamaAuthPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [urlValue, setUrlValue] = useState('');
+  const [maxTokensValue, setMaxTokensValue] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
 
@@ -57,6 +58,32 @@ export function OllamaAuthPanel() {
       }
       setUrlValue('');
       setInfo('Ollama URL saved. Checking connection…');
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSaveMaxTokens = async (): Promise<void> => {
+    const tokens = parseInt(maxTokensValue.trim(), 10);
+    if (!Number.isFinite(tokens) || tokens < 1000) {
+      setError('Max output tokens must be a number ≥ 1000');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await api.ollamaAuth.setMaxTokens(tokens);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(body.error ?? `Save failed (HTTP ${res.status})`);
+        return;
+      }
+      setMaxTokensValue('');
+      setInfo(`Max output tokens set to ${tokens.toLocaleString()}.`);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -187,6 +214,43 @@ export function OllamaAuthPanel() {
         </div>
         <p className="text-xs text-muted-foreground">
           Leave blank to use the default URL, or enter a custom address if Ollama runs on a different port or host.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <label
+          htmlFor="ollama-max-tokens"
+          className="block text-sm font-medium text-foreground"
+        >
+          Max output tokens{' '}
+          <span className="text-muted-foreground font-normal">
+            (current: {status?.maxOutputTokens?.toLocaleString() ?? '64,000'})
+          </span>
+        </label>
+        <div className="flex gap-2">
+          <input
+            id="ollama-max-tokens"
+            type="number"
+            min={1000}
+            step={1000}
+            value={maxTokensValue}
+            onChange={(e) => setMaxTokensValue(e.target.value)}
+            placeholder={String(status?.maxOutputTokens ?? 64000)}
+            disabled={submitting}
+            data-testid="ollama-max-tokens-input"
+            className="w-40 font-mono text-xs bg-background border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+          <Button
+            onClick={handleSaveMaxTokens}
+            disabled={submitting || !maxTokensValue.trim()}
+            data-testid="ollama-max-tokens-save"
+          >
+            {submitting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+            Save
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Increase if Ollama models hit the output limit. Higher values use more GPU memory.
         </p>
       </div>
 

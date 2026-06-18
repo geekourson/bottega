@@ -14,6 +14,7 @@ import {
   listOllamaModels,
   OllamaCredentialsError,
   writeOllamaUrl,
+  writeOllamaMaxTokens,
 } from '../services/ollamaCredentials.js';
 import { seedAgentSettingsAfterConnect } from '../services/agentModelSettings.js';
 import type {
@@ -21,6 +22,7 @@ import type {
   OllamaAuthStatusResponse,
   OllamaModelsResponse,
   SetOllamaUrlResponse,
+  SetOllamaMaxTokensResponse,
 } from '../../shared/api/ollamaAuth.js';
 import type { ApiError } from '../../shared/api/_common.js';
 
@@ -56,6 +58,7 @@ router.get(
         status: status.status,
         url: status.url,
         urlPath: status.urlPath,
+        maxOutputTokens: status.maxOutputTokens,
         ...(status.reason !== undefined ? { reason: status.reason } : {}),
       });
     } catch (error) {
@@ -92,6 +95,27 @@ router.delete(
     try {
       const cleared = await clearOllamaUrl(req.user!.id);
       res.json({ cleared });
+    } catch (error) {
+      authErrorResponse(res as Response<OllamaAuthErrorBody | ApiError>, error);
+    }
+  },
+);
+
+router.put(
+  '/max-tokens',
+  async (req: Request, res: Response<SetOllamaMaxTokensResponse | OllamaAuthErrorBody>) => {
+    const body = req.body as { maxOutputTokens?: unknown };
+    const raw = Number(body.maxOutputTokens);
+    if (!Number.isFinite(raw) || raw < 1000) {
+      return res.status(400).json({
+        error: 'maxOutputTokens must be a number ≥ 1000',
+        code: 'OLLAMA_AUTH_INVALID_PAYLOAD',
+      });
+    }
+    const tokens = Math.round(raw);
+    try {
+      await writeOllamaMaxTokens(req.user!.id, tokens);
+      res.status(201).json({ ok: true, maxOutputTokens: tokens });
     } catch (error) {
       authErrorResponse(res as Response<OllamaAuthErrorBody | ApiError>, error);
     }
