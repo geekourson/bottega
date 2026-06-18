@@ -1316,7 +1316,7 @@ const tasksDb = {
   markPrAgentComplete: (id: number): TaskRow | undefined => {
     db.prepare(
       `UPDATE tasks
-       SET pr_agent_complete = 1, updated_at = CURRENT_TIMESTAMP
+       SET pr_agent_complete = 1, status = 'in_review', updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`
     ).run(id);
     return tasksDb.getById(id);

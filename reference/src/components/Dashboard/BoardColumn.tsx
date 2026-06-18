@@ -8,7 +8,7 @@
  * - Empty state illustration when no tasks
  */
 
-import React, { type ComponentType } from 'react';
+import React, { useState, type ComponentType } from 'react';
 import { Circle, Loader2, CheckCircle2, Eye } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
@@ -74,6 +74,9 @@ export interface BoardColumnProps {
   onTaskClick?: (task: TaskRow) => void;
   onTaskEdit?: (task: TaskRow) => void;
   onTaskDelete?: (task: TaskRow) => void;
+  onTaskDrop?: (taskId: number, newStatus: TaskStatus) => void;
+  onTaskDragStart?: (taskId: number) => void;
+  draggingTaskId?: number | null;
   /** Optional action rendered in the column header (e.g. "Run all"). */
   headerAction?: React.ReactNode;
   className?: string;
@@ -90,15 +93,45 @@ function BoardColumn({
   onTaskClick,
   onTaskEdit,
   onTaskDelete,
+  onTaskDrop,
+  onTaskDragStart,
+  draggingTaskId = null,
   headerAction,
   className,
 }: BoardColumnProps) {
   const config = statusConfig[status] || statusConfig.pending;
   const Icon = config.icon;
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    // Only clear if leaving the column container itself
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const taskId = parseInt(e.dataTransfer.getData('taskId'), 10);
+    const fromStatus = e.dataTransfer.getData('taskStatus') as TaskStatus;
+    if (!isNaN(taskId) && fromStatus !== status) {
+      onTaskDrop?.(taskId, status);
+    }
+  };
 
   return (
     <div
       data-testid={`board-column-${status}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       className={cn(
         // Mobile: fixed width for scroll-snap
         'flex-shrink-0 w-[calc(100vw-3rem)]',
@@ -112,6 +145,8 @@ function BoardColumn({
         // Subtle shadow for depth
         'shadow-sm',
         'h-full min-h-[300px] max-h-[calc(100vh-200px)]',
+        isDragOver && 'ring-2 ring-primary/40 bg-primary/5',
+        'transition-colors duration-150',
         className
       )}
     >
@@ -163,6 +198,8 @@ function BoardColumn({
                 onClick={onTaskClick}
                 onEditClick={onTaskEdit}
                 onDeleteClick={onTaskDelete}
+                onDragStart={onTaskDragStart}
+                isDragging={draggingTaskId === task.id}
               />
             ))
           )}

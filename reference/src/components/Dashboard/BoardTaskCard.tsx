@@ -64,6 +64,8 @@ export interface BoardTaskCardProps {
   onClick?: ((task: TaskRow) => void) | undefined;
   onEditClick?: ((task: TaskRow) => void) | undefined;
   onDeleteClick?: ((task: TaskRow) => void) | undefined;
+  onDragStart?: ((taskId: number) => void) | undefined;
+  isDragging?: boolean | undefined;
 }
 
 function BoardTaskCard({
@@ -78,6 +80,8 @@ function BoardTaskCard({
   onClick,
   onEditClick,
   onDeleteClick,
+  onDragStart,
+  isDragging = false,
 }: BoardTaskCardProps) {
   // Extract preview text from documentation
   const preview = useMemo(() => extractPreview(docPreview), [docPreview]);
@@ -92,9 +96,18 @@ function BoardTaskCard({
     onDeleteClick?.(task);
   };
 
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+    e.dataTransfer.setData('taskId', String(task.id));
+    e.dataTransfer.setData('taskStatus', task.status ?? 'pending');
+    e.dataTransfer.effectAllowed = 'move';
+    onDragStart?.(task.id);
+  };
+
   return (
     <div
       data-testid={`board-task-card-${task.id}`}
+      draggable
+      onDragStart={handleDragStart}
       onClick={() => onClick?.(task)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -108,12 +121,12 @@ function BoardTaskCard({
         'group relative p-3 rounded-lg border transition-all duration-150',
         'bg-gradient-to-br from-card to-card/80',
         'hover:from-accent/30 hover:to-accent/50',
-        'cursor-pointer',
+        'cursor-grab active:cursor-grabbing',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
         'shadow-sm hover:shadow-md',
-        // Micro-interaction: subtle scale on hover
         'hover:scale-[1.02] active:scale-[0.98]',
         'transform-gpu',
+        isDragging && 'opacity-50 scale-95',
         isAwaitingQuestion
           ? 'border-amber-500/70 bg-amber-500/5 shadow-[0_0_10px_rgba(245,158,11,0.15)]'
           : isLive

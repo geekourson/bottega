@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { X, Plus, Settings as SettingsIcon, Shield, AlertTriangle, Moon, Sun, User } from 'lucide-react';
+import { X, Plus, Settings as SettingsIcon, Shield, AlertTriangle, Moon, Sun, User, Bell, BellOff } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppSettings } from '../contexts/AppSettingsContext';
@@ -55,6 +55,25 @@ function Settings({
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
 
   void projects;
+
+  // Desktop notifications
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>(() =>
+    typeof Notification !== 'undefined' ? Notification.permission : 'denied'
+  );
+  const [notifEnabled, setNotifEnabled] = useState(() =>
+    localStorage.getItem('desktop-notifications-enabled') !== 'false'
+  );
+
+  const handleRequestNotifPermission = async () => {
+    if (typeof Notification === 'undefined') return;
+    const result = await Notification.requestPermission();
+    setNotifPermission(result);
+  };
+
+  const handleToggleNotif = (enabled: boolean) => {
+    setNotifEnabled(enabled);
+    localStorage.setItem('desktop-notifications-enabled', String(enabled));
+  };
 
   // Code Editor settings
   const [codeEditorTheme, setCodeEditorTheme] = useState(() =>
@@ -764,6 +783,111 @@ function Settings({
                         {profileError}
                       </div>
                     )}
+                  </div>
+                </div>
+
+                {/* Desktop Notifications */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Bell className="w-5 h-5 text-blue-500" />
+                    <h3 className="text-lg font-medium text-foreground">
+                      Notifications bureau
+                    </h3>
+                  </div>
+
+                  <div className="bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-4">
+                    {/* Statut permission */}
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-foreground">Permission navigateur</div>
+                        <div className="text-sm text-muted-foreground mt-1">
+                          {notifPermission === 'granted' && 'Autorisée — les notifications peuvent s\'afficher.'}
+                          {notifPermission === 'denied' && (
+                            <span>
+                              Bloquée pour ce site. Clique le bouton ci-dessous pour ouvrir
+                              les réglages Arc, cherche <strong>{window.location.origin}</strong>{' '}
+                              dans la liste "Bloquer" → supprime l'entrée → recharge la page.
+                            </span>
+                          )}
+                          {notifPermission === 'default' && 'Non encore demandée — clique le bouton ci-dessous.'}
+                        </div>
+                      </div>
+                      <span className={`flex-shrink-0 text-xs font-semibold px-2 py-1 rounded-full ${
+                        notifPermission === 'granted'
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                          : notifPermission === 'denied'
+                            ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                            : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                      }`}>
+                        {notifPermission === 'granted' ? 'Autorisée' : notifPermission === 'denied' ? 'Bloquée' : 'En attente'}
+                      </span>
+                    </div>
+
+                    {notifPermission === 'denied' && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          Copie cette URL et colle-la dans la barre d'adresse d'Arc :
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <code className="flex-1 text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1.5 rounded font-mono truncate">
+                            chrome://settings/content/notifications
+                          </code>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void navigator.clipboard.writeText('chrome://settings/content/notifications')}
+                          >
+                            Copier
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Cherche <strong>{window.location.origin}</strong> dans "Bloquer" → supprime → recharge la page.
+                        </p>
+                      </div>
+                    )}
+
+                    {notifPermission === 'default' && (
+                      <Button
+                        size="sm"
+                        onClick={handleRequestNotifPermission}
+                        className="w-full"
+                      >
+                        <Bell className="w-4 h-4 mr-2" />
+                        Demander la permission
+                      </Button>
+                    )}
+
+                    {/* Toggle activé/désactivé */}
+                    <div className="flex items-center justify-between gap-4 pt-2 border-t border-gray-200 dark:border-gray-700">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-foreground flex items-center gap-2">
+                          {notifEnabled ? <Bell className="w-4 h-4" /> : <BellOff className="w-4 h-4 text-muted-foreground" />}
+                          Notifications activées
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          Agents terminés, questions en attente, tâches bloquées.
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleToggleNotif(!notifEnabled)}
+                        disabled={notifPermission !== 'granted'}
+                        className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 disabled:opacity-40 ${
+                          notifEnabled && notifPermission === 'granted'
+                            ? 'bg-blue-600 dark:bg-blue-500'
+                            : 'bg-gray-200 dark:bg-gray-700'
+                        }`}
+                        role="switch"
+                        aria-checked={notifEnabled && notifPermission === 'granted'}
+                        aria-label="Activer/désactiver les notifications"
+                      >
+                        <span className="sr-only">Notifications</span>
+                        <span
+                          className={`${
+                            notifEnabled && notifPermission === 'granted' ? 'translate-x-7' : 'translate-x-1'
+                          } inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition-transform duration-200`}
+                        />
+                      </button>
+                    </div>
                   </div>
                 </div>
 

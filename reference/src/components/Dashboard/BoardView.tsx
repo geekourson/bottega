@@ -41,6 +41,7 @@ import type { AgentRunRow, ProjectRow, TaskRow, TaskStatus } from '../../../shar
 import type { ServerMessageOf } from '../../../shared/websocket/messages';
 import type { CreateTaskRequest } from '../../../shared/api/tasks';
 import type { WebServerStatusSuccess } from '../../../shared/api/projects';
+import { useDesktopNotifications } from '../../hooks/useDesktopNotifications';
 
 interface CreateTaskFormPayload {
   title: string;
@@ -68,11 +69,18 @@ function BoardView({ className, project }: BoardViewProps) {
     tasks,
     isLoadingTasks,
     createTask,
+    updateTask,
     deleteTask,
     isTaskLive,
     isTaskAwaitingQuestion,
     loadTasks,
   } = useTaskContext();
+
+  // Notifications desktop
+  useDesktopNotifications(tasks);
+
+  // Drag state
+  const [draggingTaskId, setDraggingTaskId] = useState<number | null>(null);
 
   // Task form modal state
   const [showTaskForm, setShowTaskForm] = useState(false);
@@ -455,6 +463,19 @@ function BoardView({ className, project }: BoardViewProps) {
     }
   }, [project, isStartingPending, requireClaudeAuth, tasksByStatus.pending.length, loadTasks]);
 
+  // Handle drag & drop status change
+  const handleTaskDrop = useCallback(
+    async (taskId: number, newStatus: TaskStatus) => {
+      setDraggingTaskId(null);
+      await updateTask(taskId, { status: newStatus });
+    },
+    [updateTask],
+  );
+
+  const handleTaskDragStart = useCallback((taskId: number) => {
+    setDraggingTaskId(taskId);
+  }, []);
+
   // Handle back navigation
   const handleBack = useCallback(() => {
     navigate(`/`);
@@ -578,6 +599,7 @@ function BoardView({ className, project }: BoardViewProps) {
 
       {/* Board columns */}
       <div
+        onDragEnd={() => setDraggingTaskId(null)}
         className={cn(
           // Mobile: horizontal scroll-snap
           'flex gap-4 p-4 overflow-x-auto flex-1',
@@ -602,6 +624,9 @@ function BoardView({ className, project }: BoardViewProps) {
           onTaskClick={handleTaskClick}
           onTaskEdit={handleTaskEdit}
           onTaskDelete={handleTaskDelete}
+          onTaskDrop={handleTaskDrop}
+          onTaskDragStart={handleTaskDragStart}
+          draggingTaskId={draggingTaskId}
           headerAction={
             tasksByStatus.pending.length > 0 ? (
               <button
@@ -632,6 +657,9 @@ function BoardView({ className, project }: BoardViewProps) {
           onTaskClick={handleTaskClick}
           onTaskEdit={handleTaskEdit}
           onTaskDelete={handleTaskDelete}
+          onTaskDrop={handleTaskDrop}
+          onTaskDragStart={handleTaskDragStart}
+          draggingTaskId={draggingTaskId}
         />
         <BoardColumn
           status="in_review"
@@ -644,6 +672,9 @@ function BoardView({ className, project }: BoardViewProps) {
           onTaskClick={handleTaskClick}
           onTaskEdit={handleTaskEdit}
           onTaskDelete={handleTaskDelete}
+          onTaskDrop={handleTaskDrop}
+          onTaskDragStart={handleTaskDragStart}
+          draggingTaskId={draggingTaskId}
         />
         <BoardColumn
           status="completed"
@@ -656,6 +687,9 @@ function BoardView({ className, project }: BoardViewProps) {
           onTaskClick={handleTaskClick}
           onTaskEdit={handleTaskEdit}
           onTaskDelete={handleTaskDelete}
+          onTaskDrop={handleTaskDrop}
+          onTaskDragStart={handleTaskDragStart}
+          draggingTaskId={draggingTaskId}
         />
       </div>
 
