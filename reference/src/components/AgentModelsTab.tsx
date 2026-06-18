@@ -27,6 +27,7 @@ const AGENT_LABELS: Record<AgentType, string> = {
   pr: 'PR',
   yolo: 'YOLO',
   po: 'PO Session',
+  ux_design: 'UX Design',
 };
 
 function AgentModelsTab() {
@@ -176,8 +177,13 @@ function AgentModelsTab() {
     return (
       <div className="py-8 text-center text-sm text-muted-foreground">
         <AlertCircle className="w-5 h-5 mx-auto mb-2" />
-        Connect a provider in <span className="font-medium">Settings → Providers</span> to
-        configure your agent models.
+        {connected.length > 0 ? (
+          <>No agent model settings found. Reconnect a provider in{' '}
+          <span className="font-medium">Settings → Providers</span> to initialize them.</>
+        ) : (
+          <>Connect a provider in <span className="font-medium">Settings → Providers</span> to
+          configure your agent models.</>
+        )}
       </div>
     );
   }

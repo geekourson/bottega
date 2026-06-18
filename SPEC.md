@@ -80,6 +80,7 @@ Opinionated features. Each is independent; implement what you want.
 | [`extra/harnesses/codex.md`](./extra/harnesses/codex.md) | OpenAI Codex integration. |
 | [`extra/harnesses/opencode.md`](./extra/harnesses/opencode.md) | OpenCode integration. |
 | [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. Swap for Jira/Notion/etc. |
+| [`extra/ux-design-agent.md`](./extra/ux-design-agent.md) | A design gate before planning: a UX agent proposes mockups, the user approves, and the design is written into the task doc for impl + review. |
 | [`extra/refinement-agent.md`](./extra/refinement-agent.md) | An extra agent that polishes the work between review and PR. |
 | [`extra/yolo-mode.md`](./extra/yolo-mode.md) | A single-agent alternative to the multi-step pipeline. |
 | [`extra/pr-comment-retrigger.md`](./extra/pr-comment-retrigger.md) | Re-run the PR agent automatically when a PR receives review comments (GitHub webhook). |

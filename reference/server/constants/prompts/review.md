@@ -114,6 +114,7 @@ Based on your findings from steps 2-4, determine if the feature is **READY**, **
 - All manual testing scenarios pass
 - No implementation issues found
 - ALL To-Do items (Implementation and Testing) are marked complete [x]
+- If a `## UX Design` section exists in the task doc: the implementation matches the design (layout, components, interactions, copy)
 
 **NEEDS_WORK** - Any of the following:
 - Any checked To-Do item failed verification in Step 2
@@ -121,6 +122,7 @@ Based on your findings from steps 2-4, determine if the feature is **READY**, **
 - Manual testing reveals issues
 - Implementation gaps or bugs found
 - To-Do items still unchecked
+- `## UX Design` section exists and the implementation does not match it
 
 **BLOCKED** - Use this status when the agent cannot complete remaining tasks:
 - All agent-actionable steps (code, automated tests, docs) are complete
@@ -158,6 +160,9 @@ Update the task documentation file at `{{taskDocPath}}`:
 ### Manual Testing
 - [x] Scenario 1: [PASS - description]
 - [ ] Scenario 2: [FAIL - what went wrong]
+
+### UX Issues
+- [List any discrepancies between the implementation and the ## UX Design section, or omit this subsection if no UX Design section exists]
 
 ### Issues to Address
 - [List specific issues that need fixing]

@@ -38,6 +38,8 @@ export interface CreateTaskRequest {
   // When true, the agent runs as the single-agent YOLO workflow rather than
   // the staged 5-step pipeline.
   yolo_mode?: boolean;
+  // When true, requires a UX design review before the planning agent runs.
+  ux_review_required?: boolean;
 }
 
 export type CreateTaskResponse = TaskRow;
@@ -48,6 +50,8 @@ export interface UpdateTaskRequest {
   status?: TaskStatus;
   // Persisted as 0 | 1; the route accepts a boolean and converts.
   workflow_complete?: boolean;
+  yolo_mode?: boolean;
+  ux_review_required?: boolean;
 }
 
 export type UpdateTaskResponse = TaskRow;

@@ -73,7 +73,7 @@ import type {
   DiscardWorktreeResponse,
   GetDiffResponse,
 } from '../../shared/api/tasks';
-import type { TaskStatus } from '../../shared/types/db';
+import type { TaskRow, TaskStatus } from '../../shared/types/db';
 import type {
   ListConversationsResponse,
   CreateConversationRequest,
@@ -446,6 +446,11 @@ export const api = {
         body: JSON.stringify(body),
       });
     },
+    approveUxDesign: (id: number, design_spec: string): TypedFetch<TaskRow> =>
+      authenticatedFetch<TaskRow>(`/api/tasks/${id}/approve-ux-design`, {
+        method: 'POST',
+        body: JSON.stringify({ design_spec }),
+      }),
     delete: (id: number): TypedFetch<DeleteTaskResponse> =>
       authenticatedFetch<DeleteTaskResponse>(`/api/tasks/${id}`, {
         method: 'DELETE',

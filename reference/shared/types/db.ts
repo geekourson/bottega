@@ -29,7 +29,8 @@ export type AgentType =
   | 'review'
   | 'pr'
   | 'yolo'
-  | 'po';
+  | 'po'
+  | 'ux_design';
 
 export type AgentRunStatus =
   | 'pending'
@@ -102,6 +103,8 @@ export interface TaskRow {
   pr_agent_complete: SqliteBoolean;
   refinement_complete: SqliteBoolean;
   yolo_mode: SqliteBoolean;
+  ux_review_required: SqliteBoolean;
+  ux_design_approved: SqliteBoolean;
   completed_at: string | null;
   created_at: string;
   updated_at: string;

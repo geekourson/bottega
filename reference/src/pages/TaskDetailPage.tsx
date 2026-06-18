@@ -129,6 +129,14 @@ function TaskDetailPage() {
     return await updateTask(taskIdParam, { status: newStatus });
   }, [updateTask]);
 
+  const handleUpdateTaskFlags = useCallback(async (taskIdParam: number, patch: { yolo_mode?: boolean; ux_review_required?: boolean }) => {
+    const res = await api.tasks.update(taskIdParam, patch);
+    if (res.ok) {
+      const updatedTask = await res.json();
+      setTask(updatedTask);
+    }
+  }, [setTask]);
+
   const handleEditDocumentation = useCallback(() => {
     if (task) {
       navigate(`/projects/${projectId}/tasks/${taskId}/edit`);
@@ -275,6 +283,72 @@ function TaskDetailPage() {
     }
   }, [task, openAuthModal, loadAgentRuns, toast]);
 
+  const handleApproveUxDesign = useCallback(async (approveTaskId: number) => {
+    // Find the latest ux_design agent run with a conversation
+    const uxRun = [...agentRuns]
+      .filter(r => r.agent_type === 'ux_design' && r.conversation_id != null)
+      .sort((a, b) => b.id - a.id)[0];
+
+    if (!uxRun?.conversation_id) {
+      toast.error('No UX design conversation found. Run the UX Design agent first.');
+      return;
+    }
+
+    // Load messages from the UX design conversation
+    let messages: unknown[] = [];
+    try {
+      const response = await api.conversations.getMessages(uxRun.conversation_id, null, 0);
+      if (response.ok) {
+        const data = await response.json() as unknown;
+        messages = Array.isArray(data) ? data : ((data as { messages?: unknown[] }).messages ?? []);
+      }
+    } catch (err) {
+      toast.error(`Failed to load conversation messages: ${(err as Error).message}`);
+      return;
+    }
+
+    // Find the last assistant message and extract the design-spec block
+    const lastAssistant = [...messages].reverse().find(
+      (m): m is { type: string; message: { content: unknown } } =>
+        typeof m === 'object' && m !== null && (m as { type?: unknown }).type === 'assistant'
+    );
+    let designSpec = '';
+    if (lastAssistant?.message?.content) {
+      const content = lastAssistant.message.content;
+      const fullText: string = Array.isArray(content)
+        ? content
+            .filter((b): b is { type: string; text: string } => typeof (b as { text?: unknown }).text === 'string')
+            .map(b => b.text)
+            .join('')
+        : typeof content === 'string'
+          ? content
+          : '';
+      const match = fullText.match(/```design-spec\n([\s\S]*?)```/);
+      if (match?.[1]) {
+        designSpec = match[1].trim();
+      }
+    }
+
+    if (!designSpec) {
+      toast.error('No design-spec block found in the last UX agent message. Ask the agent to produce one.');
+      return;
+    }
+
+    try {
+      const response = await api.tasks.approveUxDesign(approveTaskId, designSpec);
+      if (response.ok) {
+        const updatedTask = await response.json() as TaskRow;
+        setTask(updatedTask);
+        toast.success('UX design approved and written to task doc');
+      } else {
+        const data = await response.json() as { error?: string };
+        toast.error(data.error || 'Failed to approve UX design');
+      }
+    } catch (err) {
+      toast.error(`Failed to approve UX design: ${(err as Error).message}`);
+    }
+  }, [agentRuns, toast]);
+
   // Loading state
   if (isLoading || isLoadingProjects || !project || !task) {
     return (
@@ -308,8 +382,10 @@ function TaskDetailPage() {
         onEditDocumentation={handleEditDocumentation}
         onShowDocumentation={handleShowDocumentation}
         onStatusChange={handleStatusChange}
+        onUpdateTaskFlags={handleUpdateTaskFlags}
         onWorkflowCompleteChange={handleWorkflowCompleteChange}
         onResumeWorkflow={handleResumeWorkflow}
+        onApproveUxDesign={handleApproveUxDesign}
         onNewConversation={handleNewConversation}
         onResumeConversation={handleResumeConversation}
         onDeleteConversation={deleteConversation}

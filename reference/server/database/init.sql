@@ -60,6 +60,8 @@ CREATE INDEX IF NOT EXISTS idx_project_members_user_id ON project_members(user_i
 -- planification_complete: Boolean flag to signal planification phase is done
 -- pr_agent_complete: Boolean flag to signal PR agent has finished (CI passed)
 -- yolo_mode: Boolean flag to use the single-agent YOLO workflow instead of the 5-step pipeline
+-- ux_review_required: Boolean flag to require UX design review before planning
+-- ux_design_approved: Boolean flag set when user approves the UX design
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL,
@@ -73,6 +75,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     pr_agent_complete INTEGER DEFAULT 0 NOT NULL,
     refinement_complete INTEGER DEFAULT 0 NOT NULL,
     yolo_mode INTEGER DEFAULT 0 NOT NULL,
+    ux_review_required INTEGER DEFAULT 0 NOT NULL,
+    ux_design_approved INTEGER DEFAULT 0 NOT NULL,
     completed_at DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -113,12 +117,12 @@ CREATE INDEX IF NOT EXISTS idx_conversations_task_id ON conversations(task_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_claude_id ON conversations(claude_conversation_id);
 
 -- Task Agent Runs table - Tracks automated agent runs for tasks
--- Agent types: 'planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po'
+-- Agent types: 'planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po', 'ux_design'
 -- Status: 'pending', 'running', 'completed', 'failed', 'blocked'
 CREATE TABLE IF NOT EXISTS task_agent_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL,
-    agent_type TEXT NOT NULL CHECK(agent_type IN ('planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po')),
+    agent_type TEXT NOT NULL CHECK(agent_type IN ('planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po', 'ux_design')),
     status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed', 'blocked')),
     conversation_id INTEGER,
     -- Provider used for this run; diagnostics only — runtime always reads

@@ -23,6 +23,7 @@ import { listOpenCodeModels } from './providers/opencode/index.js';
 import { listOllamaModels } from './ollamaCredentials.js';
 import {
   AGENT_TYPES_WITH_SETTINGS,
+  DEFAULT_AGENT_MODEL_SETTINGS,
   isValidAgentModelSetting,
   isAgentTypeWithSettings,
   buildSeedSettings,
@@ -68,10 +69,15 @@ export function loadAgentModelSettings(userId: number): AgentModelSettings {
   const blob = parsed as Record<string, unknown>;
   const result = {} as AgentModelSettings;
 
+  let needsPersist = false;
   for (const agentType of AGENT_TYPES_WITH_SETTINGS) {
     const entry = blob[agentType];
     if (!entry || typeof entry !== 'object') {
-      throw new MissingUserAgentSettingsError(userId, `missing entry for '${agentType}'`);
+      // New agent type added after this user's settings were seeded — fill in
+      // the default so existing users aren't locked out of the tab.
+      result[agentType] = DEFAULT_AGENT_MODEL_SETTINGS[agentType];
+      needsPersist = true;
+      continue;
     }
     const e = entry as { provider?: unknown; model?: unknown; effort?: unknown };
     // D6 legacy compat: backfilled rows from before the `provider` field read
@@ -86,6 +92,7 @@ export function loadAgentModelSettings(userId: number): AgentModelSettings {
     }
     result[agentType] = candidate;
   }
+  if (needsPersist) saveAgentModelSettings(userId, result);
 
   return result;
 }

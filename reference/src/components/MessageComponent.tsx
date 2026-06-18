@@ -72,6 +72,38 @@ function CodeBlock({ children, className }: CodeBlockProps) {
   );
 }
 
+// Sandboxed iframe for html-mockup blocks
+function HtmlMockup({ html }: { html: string }) {
+  return (
+    <div className="my-3 rounded-lg border border-border overflow-hidden">
+      <div className="px-3 py-1.5 bg-muted text-xs text-muted-foreground font-medium border-b border-border">
+        UI Mockup
+      </div>
+      <iframe
+        srcDoc={html}
+        sandbox="allow-scripts"
+        className="w-full min-h-[400px] bg-white"
+        style={{ border: 'none' }}
+        title="UX Mockup"
+      />
+    </div>
+  );
+}
+
+// Styled panel for design-spec blocks
+function DesignSpecPanel({ children }: { children?: ReactNode }) {
+  return (
+    <div className="my-3 rounded-lg border border-purple-200 dark:border-purple-800 overflow-hidden">
+      <div className="px-3 py-1.5 bg-purple-50 dark:bg-purple-900/20 text-xs text-purple-700 dark:text-purple-300 font-medium border-b border-purple-200 dark:border-purple-800">
+        Design Spec
+      </div>
+      <div className="p-4 text-sm text-foreground prose prose-sm dark:prose-invert max-w-none">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 // Markdown components configuration
 const markdownComponents: Components = {
   code: ({ className, children, ...props }) => {
@@ -81,6 +113,19 @@ const markdownComponents: Components = {
     const codeString = (Array.isArray(children) ? children.join('') : children as string ?? '').replace(/\n$/, '');
     const isMultiline = codeString.includes('\n');
     const isBlock = hasLanguage || isMultiline;
+
+    // Custom renderers for UX design agent blocks
+    if (className === 'language-html-mockup') {
+      return <HtmlMockup html={codeString} />;
+    }
+    if (className === 'language-design-spec') {
+      // Render the design spec content as markdown inside the panel
+      return (
+        <DesignSpecPanel>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{codeString}</ReactMarkdown>
+        </DesignSpecPanel>
+      );
+    }
 
     if (isBlock) {
       return <CodeBlock className={className}>{children}</CodeBlock>;

@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import { promises as fs } from 'fs';
 import fsSync from 'fs';
-import { tasksDb, conversationsDb } from '../database/db.js';
+import { tasksDb, conversationsDb, agentRunsDb } from '../database/db.js';
 import { purgeConversationMessages } from '../services/conversationContentStore.js';
 import { hasProjectAccess, getProject } from '../services/projectService.js';
 import { getAllTasks } from '../services/taskService.js';
@@ -127,7 +127,7 @@ router.post(
         return res.status(404).json({ error: 'Project not found' } satisfies ApiError);
       }
 
-      const { title, description, yolo_mode } = req.validated!.body as CreateTaskBody;
+      const { title, description, yolo_mode, ux_review_required } = req.validated!.body as CreateTaskBody;
 
       const isGit = await isGitRepository(project.repo_folder_path);
 
@@ -136,6 +136,7 @@ router.post(
         title?.trim() || null,
         !!yolo_mode,
         userId,
+        !!ux_review_required,
       ) as unknown as { id: number; [k: string]: unknown };
 
       if (isGit) {
@@ -232,6 +233,12 @@ router.put(
       }
       if (body.workflow_complete !== undefined) {
         updates.workflow_complete = body.workflow_complete ? 1 : 0;
+      }
+      if (body.yolo_mode !== undefined) {
+        updates.yolo_mode = body.yolo_mode ? 1 : 0;
+      }
+      if (body.ux_review_required !== undefined) {
+        updates.ux_review_required = body.ux_review_required ? 1 : 0;
       }
 
       const task = tasksDb.update(taskId, updates);
@@ -629,6 +636,73 @@ router.put(
       res
         .status(500)
         .json({ error: 'Failed to update workflow complete' } satisfies ApiError);
+    }
+  },
+);
+
+router.post(
+  '/tasks/:id/approve-ux-design',
+  validateParams(IdParamsSchema),
+  async (
+    req: Request,
+    res: Response<unknown>,
+  ) => {
+    try {
+      const userId = req.user!.id;
+      const { id: taskId } = req.validated!.params as IdParams;
+
+      const taskWithProject = tasksDb.getWithProject(taskId);
+      if (!taskWithProject) {
+        return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
+      }
+      if (!hasProjectAccess(taskWithProject.project_id, userId)) {
+        return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
+      }
+      if (!taskWithProject.ux_review_required) {
+        return res.status(400).json({ error: 'This task does not require UX design review' } satisfies ApiError);
+      }
+
+      // Read the design spec content from the request body
+      const { design_spec } = req.body as { design_spec?: string };
+      if (!design_spec || !design_spec.trim()) {
+        return res.status(400).json({ error: 'design_spec is required' } satisfies ApiError);
+      }
+
+      // Write the UX Design section to the task doc
+      const taskDocPath = (await import('../services/documentation.js')).getTaskDocPath(
+        taskWithProject.project_id,
+        taskId,
+      );
+      let docContent = '';
+      try {
+        docContent = await fs.readFile(taskDocPath, 'utf-8');
+      } catch {
+        // doc may not exist yet
+      }
+
+      const uxSection = `\n\n## UX Design\n\n${design_spec.trim()}\n`;
+      if (docContent.includes('## UX Design')) {
+        docContent = docContent.replace(/\n*## UX Design[\s\S]*?(?=\n## |\n*$)/, uxSection.trimEnd());
+      } else {
+        docContent = docContent.trimEnd() + uxSection;
+      }
+      await fs.writeFile(taskDocPath, docContent, 'utf-8');
+
+      // Set the approved flag
+      const updatedTask = tasksDb.setUxDesignApproved(taskId);
+
+      // Broadcast the update
+      const broadcastToTaskSubscribersFn = req.app.locals.broadcastToTaskSubscribers as
+        | ((taskId: number, msg: unknown) => void)
+        | undefined;
+      if (broadcastToTaskSubscribersFn && updatedTask) {
+        broadcastToTaskSubscribersFn(taskId, { type: 'task-updated', task: updatedTask });
+      }
+
+      res.json(updatedTask);
+    } catch (error) {
+      console.error('Error approving UX design:', error);
+      res.status(500).json({ error: 'Failed to approve UX design' } satisfies ApiError);
     }
   },
 );

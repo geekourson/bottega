@@ -46,6 +46,7 @@ interface CreateTaskFormPayload {
   title: string;
   documentation?: string;
   yolo_mode?: boolean;
+  ux_review_required?: boolean;
 }
 
 interface ActionResult {
@@ -309,6 +310,7 @@ function BoardView({ className, project }: BoardViewProps) {
       title,
       documentation,
       yolo_mode,
+      ux_review_required,
     }: CreateTaskFormPayload): Promise<ActionResult> => {
       if (!project) return { success: false, error: 'No project selected' };
 
@@ -317,6 +319,9 @@ function BoardView({ className, project }: BoardViewProps) {
         const options: Omit<CreateTaskRequest, 'title' | 'documentation'> = {};
         if (yolo_mode !== undefined) {
           options.yolo_mode = yolo_mode;
+        }
+        if (ux_review_required !== undefined) {
+          options.ux_review_required = ux_review_required;
         }
         const result = await createTask(project.id, title, documentation, options);
         if (result.success) {

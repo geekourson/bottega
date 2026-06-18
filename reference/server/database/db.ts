@@ -250,6 +250,16 @@ const runMigrations = (): void => {
       db.exec('ALTER TABLE tasks ADD COLUMN yolo_mode INTEGER DEFAULT 0 NOT NULL');
     }
 
+    if (!taskColumnNames.includes('ux_review_required')) {
+      console.log('Running migration: Adding ux_review_required column to tasks');
+      db.exec('ALTER TABLE tasks ADD COLUMN ux_review_required INTEGER DEFAULT 0 NOT NULL');
+    }
+
+    if (!taskColumnNames.includes('ux_design_approved')) {
+      console.log('Running migration: Adding ux_design_approved column to tasks');
+      db.exec('ALTER TABLE tasks ADD COLUMN ux_design_approved INTEGER DEFAULT 0 NOT NULL');
+    }
+
     try {
       db.prepare('SELECT 1 FROM task_agent_runs LIMIT 1').get();
     } catch (e) {
@@ -393,6 +403,38 @@ const runMigrations = (): void => {
     } catch (migrationError) {
       const message = migrationError instanceof Error ? migrationError.message : String(migrationError);
       console.error('Error migrating task_agent_runs for po agent type:', message);
+    }
+
+    try {
+      const checkUxDesignAgentType = db
+        .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='task_agent_runs'`)
+        .get() as { sql: string } | undefined;
+
+      if (checkUxDesignAgentType && !checkUxDesignAgentType.sql.includes("'ux_design'")) {
+        console.log('Running migration: Adding ux_design agent type to task_agent_runs');
+        db.exec(`
+          DROP TABLE IF EXISTS task_agent_runs_new;
+          CREATE TABLE task_agent_runs_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            agent_type TEXT NOT NULL CHECK(agent_type IN ('planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po', 'ux_design')),
+            status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed', 'blocked')),
+            conversation_id INTEGER,
+            provider TEXT NOT NULL DEFAULT 'anthropic',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            completed_at DATETIME,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+          );
+          INSERT INTO task_agent_runs_new SELECT * FROM task_agent_runs;
+          DROP TABLE task_agent_runs;
+          ALTER TABLE task_agent_runs_new RENAME TO task_agent_runs;
+          CREATE INDEX idx_task_agent_runs_task_id ON task_agent_runs(task_id);
+        `);
+      }
+    } catch (migrationError) {
+      const message = migrationError instanceof Error ? migrationError.message : String(migrationError);
+      console.error('Error migrating task_agent_runs for ux_design agent type:', message);
     }
 
     try {
@@ -1088,6 +1130,7 @@ export interface TaskUpdates {
   refinement_complete?: 0 | 1 | boolean;
   completed_at?: string | null;
   yolo_mode?: 0 | 1 | boolean;
+  ux_review_required?: 0 | 1 | boolean;
 }
 
 const tasksDb = {
@@ -1095,13 +1138,15 @@ const tasksDb = {
     projectId: number,
     title: string | null = null,
     yoloMode: boolean = false,
-    userId: number | null = null
+    userId: number | null = null,
+    uxReviewRequired: boolean = false,
   ): CreatedTask => {
     const stmt = db.prepare(
-      'INSERT INTO tasks (project_id, user_id, title, status, yolo_mode) VALUES (?, ?, ?, ?, ?)'
+      'INSERT INTO tasks (project_id, user_id, title, status, yolo_mode, ux_review_required) VALUES (?, ?, ?, ?, ?, ?)'
     );
     const yoloFlag: 0 | 1 = yoloMode ? 1 : 0;
-    const result = stmt.run(projectId, userId, title, 'pending', yoloFlag);
+    const uxFlag: 0 | 1 = uxReviewRequired ? 1 : 0;
+    const result = stmt.run(projectId, userId, title, 'pending', yoloFlag, uxFlag);
     return {
       id: lastInsertId(result.lastInsertRowid),
       projectId,
@@ -1166,6 +1211,7 @@ const tasksDb = {
       'refinement_complete',
       'completed_at',
       'yolo_mode',
+      'ux_review_required',
     ];
     const setClause: string[] = [];
     const values: unknown[] = [];
@@ -1280,6 +1326,24 @@ const tasksDb = {
     db.prepare(
       `UPDATE tasks
        SET pr_agent_complete = 0, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`
+    ).run(id);
+    return tasksDb.getById(id);
+  },
+
+  setUxDesignApproved: (id: number): TaskRow | undefined => {
+    db.prepare(
+      `UPDATE tasks
+       SET ux_design_approved = 1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`
+    ).run(id);
+    return tasksDb.getById(id);
+  },
+
+  resetUxDesignApproved: (id: number): TaskRow | undefined => {
+    db.prepare(
+      `UPDATE tasks
+       SET ux_design_approved = 0, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`
     ).run(id);
     return tasksDb.getById(id);

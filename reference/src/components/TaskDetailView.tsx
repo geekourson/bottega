@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { FileText, ArrowLeft, ChevronDown, Check, CheckCircle2, GitBranch, ExternalLink, GitMerge, Copy, ArrowUpRight, ArrowDownLeft, Upload, Server, ArrowDownToLine, Loader2, AlertCircle, X, GitCompareArrows } from 'lucide-react';
+import { FileText, ArrowLeft, ChevronDown, Check, CheckCircle2, GitBranch, ExternalLink, GitMerge, Copy, ArrowUpRight, ArrowDownLeft, Upload, Server, ArrowDownToLine, Loader2, AlertCircle, X, GitCompareArrows, Zap, Palette } from 'lucide-react';
 import { Button } from './ui/button';
 import Breadcrumb from './Breadcrumb';
 import MarkdownEditor from './MarkdownEditor';
@@ -103,6 +103,8 @@ export interface TaskDetailViewProps {
   onStatusChange?: (taskId: number, newStatus: TaskStatus) => Promise<unknown>;
   onWorkflowCompleteChange?: (taskId: number, value: boolean) => Promise<unknown>;
   onResumeWorkflow?: (taskId: number) => Promise<unknown>;
+  onApproveUxDesign?: (taskId: number) => Promise<unknown>;
+  onUpdateTaskFlags?: (taskId: number, patch: { yolo_mode?: boolean; ux_review_required?: boolean }) => Promise<void>;
   onNewConversation: () => void;
   onResumeConversation: (conversation: ConversationRow) => void;
   onDeleteConversation: (conversationId: number) => void | Promise<unknown>;
@@ -141,6 +143,8 @@ function TaskDetailView({
   onStatusChange,
   onWorkflowCompleteChange,
   onResumeWorkflow,
+  onApproveUxDesign,
+  onUpdateTaskFlags,
   onNewConversation,
   onResumeConversation,
   onDeleteConversation,
@@ -153,6 +157,7 @@ function TaskDetailView({
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isUpdatingWorkflow, setIsUpdatingWorkflow] = useState(false);
   const [isResumingWorkflow, setIsResumingWorkflow] = useState(false);
+  const [isApprovingUxDesign, setIsApprovingUxDesign] = useState(false);
 
   // Worktree state
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeSuccess | null>(null);
@@ -624,6 +629,16 @@ Please:
     }
   };
 
+  const handleApproveUxDesign = async () => {
+    if (!onApproveUxDesign || !task) return;
+    setIsApprovingUxDesign(true);
+    try {
+      await onApproveUxDesign(task.id);
+    } finally {
+      setIsApprovingUxDesign(false);
+    }
+  };
+
   const loadDiff = useCallback(async () => {
     if (!task?.id) return;
     setIsLoadingDiff(true);
@@ -689,6 +704,29 @@ Please:
               Task #{task.id} in {project?.name || 'Unknown Project'}
             </p>
           </div>
+
+          {/* UX Design Approve button */}
+          {task.ux_review_required === 1 && !task.ux_design_approved && onApproveUxDesign && (
+            <button
+              onClick={handleApproveUxDesign}
+              disabled={isApprovingUxDesign}
+              title="Approve UX design and write it to the task doc"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors flex-shrink-0 bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 ${isApprovingUxDesign ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              {isApprovingUxDesign ? (
+                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">Approve Design</span>
+            </button>
+          )}
+          {task.ux_review_required === 1 && task.ux_design_approved === 1 && (
+            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-purple-500/10 text-purple-600 dark:text-purple-400 flex-shrink-0">
+              <CheckCircle2 className="w-4 h-4 fill-purple-500/20" />
+              <span className="hidden sm:inline">Design Approved</span>
+            </span>
+          )}
 
           {/* Workflow control: Resume (if blocked) or Mark Done */}
           {task.workflow_blocked ? (
@@ -1093,12 +1131,41 @@ Please:
                 placeholder="No task documentation yet. Click Edit to describe what needs to be done."
                 className="md:flex-1 md:min-h-0"
               />
+              {task.status === 'pending' && onUpdateTaskFlags && (
+                <div className="flex-shrink-0 flex gap-3 px-3 py-2 border-t border-border">
+                  <button
+                    onClick={() => void onUpdateTaskFlags(task.id, { ux_review_required: task.ux_review_required !== 1 })}
+                    className={cn(
+                      'flex items-center gap-1.5 text-xs px-2 py-1 rounded border transition-colors',
+                      task.ux_review_required === 1
+                        ? 'bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300'
+                        : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30',
+                    )}
+                  >
+                    <Palette className="w-3 h-3" />
+                    UX requis
+                  </button>
+                  <button
+                    onClick={() => void onUpdateTaskFlags(task.id, { yolo_mode: task.yolo_mode !== 1 })}
+                    className={cn(
+                      'flex items-center gap-1.5 text-xs px-2 py-1 rounded border transition-colors',
+                      task.yolo_mode === 1
+                        ? 'bg-yellow-100 dark:bg-yellow-900/30 border-yellow-300 dark:border-yellow-700 text-yellow-700 dark:text-yellow-300'
+                        : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30',
+                    )}
+                  >
+                    <Zap className="w-3 h-3" />
+                    YOLO
+                  </button>
+                </div>
+              )}
               <AgentSection
                 agentRuns={agentRuns}
                 isLoading={isLoadingAgentRuns}
                 onRunAgent={onRunAgent}
                 onResumeAgent={handleResumeAgent}
                 yoloMode={task.yolo_mode === 1}
+                uxReviewRequired={task.ux_review_required === 1}
                 className="flex-shrink-0"
               />
               <ReviewRecording taskId={task.id} className="flex-shrink-0" />

@@ -50,6 +50,7 @@ export const CreateTaskBodySchema = z.object({
   title: z.string().nullable().optional(),
   description: z.string().optional(),
   yolo_mode: z.boolean().optional(),
+  ux_review_required: z.boolean().optional(),
 });
 export type CreateTaskBody = z.infer<typeof CreateTaskBodySchema>;
 
@@ -58,6 +59,8 @@ export const UpdateTaskBodySchema = z.object({
   status: TaskStatusSchema.optional(),
   // Existing route accepted boolean | 0 | 1.
   workflow_complete: z.union([z.boolean(), z.literal(0), z.literal(1)]).optional(),
+  yolo_mode: z.boolean().optional(),
+  ux_review_required: z.boolean().optional(),
 });
 export type UpdateTaskBody = z.infer<typeof UpdateTaskBodySchema>;
 

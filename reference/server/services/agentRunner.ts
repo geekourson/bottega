@@ -25,6 +25,7 @@ import {
   generatePrAgentReviewMessage,
   generateYoloMessage,
   generatePoMessage,
+  generateUxDesignMessage,
 } from '../constants/agentPrompts.js';
 import { loadAgentModelSettings } from './agentModelSettings.js';
 import type { AgentRunRow, CreatedConversation } from '../database/db.js';
@@ -128,6 +129,9 @@ export async function startAgentRun(
         taskWithProject.project_id,
         taskWithProject.repo_folder_path,
       );
+      break;
+    case 'ux_design':
+      message = await generateUxDesignMessage(taskDocPath, taskId);
       break;
     default:
       throw new Error(`Unknown agent type: ${agentType}`);

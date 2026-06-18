@@ -12,7 +12,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
-import { X, FileText, Zap } from 'lucide-react';
+import { X, FileText, Zap, Palette } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
@@ -23,6 +23,7 @@ export interface TaskFormSubmitData {
   title: string;
   documentation: string;
   yolo_mode?: boolean;
+  ux_review_required?: boolean;
 }
 
 export interface TaskFormSubmitResult {
@@ -48,6 +49,7 @@ function TaskForm({
   const [title, setTitle] = useState('');
   const [documentation, setDocumentation] = useState('');
   const [yoloMode, setYoloMode] = useState(false);
+  const [uxReviewRequired, setUxReviewRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const documentationRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -56,6 +58,7 @@ function TaskForm({
       setTitle('');
       setDocumentation('');
       setYoloMode(false);
+      setUxReviewRequired(false);
       setError(null);
     }
   }, [isOpen]);
@@ -74,6 +77,7 @@ function TaskForm({
         title: title.trim(),
         documentation,
         yolo_mode: yoloMode,
+        ux_review_required: uxReviewRequired,
       });
 
       if (!result.success) {
@@ -194,6 +198,26 @@ function TaskForm({
             <p className="text-xs text-muted-foreground">
               This documentation is saved to <code className="bg-muted px-1 rounded">~/.bottega/projects/{'{projectId}'}/tasks/task-{'{id}'}.md</code> (outside your repo, survives worktree cleanup) and provides context when starting conversations for this task.
             </p>
+          </div>
+
+          {/* UX Design Review */}
+          <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-md border border-border">
+            <input
+              type="checkbox"
+              id="ux-review-required"
+              checked={uxReviewRequired}
+              onChange={(e) => setUxReviewRequired(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary"
+            />
+            <div className="flex-1 min-w-0">
+              <label htmlFor="ux-review-required" className="flex items-center gap-2 text-sm font-medium text-foreground cursor-pointer">
+                <Palette className="w-4 h-4 text-muted-foreground" />
+                Require UX design review
+              </label>
+              <p className="text-xs text-muted-foreground mt-1">
+                A UX design agent will propose mockups before planning starts. You approve the design, then the implementation uses it as a reference.
+              </p>
+            </div>
           </div>
 
           {/* YOLO mode - single-agent end-to-end workflow */}

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, type ComponentType } from 'react';
-import { Play, Check, Loader2, FileText, Code, CheckCircle, MessageCircle, AlertCircle, GitPullRequest, Sparkles, Zap } from 'lucide-react';
+import { Play, Check, Loader2, FileText, Code, CheckCircle, MessageCircle, AlertCircle, GitPullRequest, Sparkles, Zap, Palette } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import type { AgentRunRow, AgentType } from '../../shared/types/db';
@@ -23,6 +23,12 @@ interface AgentConfig {
 // Agent type configurations
 // Message generation is now handled on the backend
 const AGENT_TYPES: AgentConfig[] = [
+  {
+    type: 'ux_design',
+    label: 'UX Design',
+    description: 'Propose and iterate on UX design before planning',
+    icon: Palette
+  },
   {
     type: 'planification',
     label: 'Planification',
@@ -67,6 +73,7 @@ interface AgentSectionProps {
   onRunAgent: (agentType: AgentType) => void | Promise<void>;
   onResumeAgent?: ((conversationId: number) => void) | undefined;
   yoloMode?: boolean | undefined;
+  uxReviewRequired?: boolean | undefined;
   className?: string | undefined;
 }
 
@@ -76,11 +83,15 @@ function AgentSection({
   onRunAgent,
   onResumeAgent,
   yoloMode = false,
+  uxReviewRequired = false,
   className
 }: AgentSectionProps) {
-  const visibleAgents = AGENT_TYPES.filter(a =>
-    yoloMode ? a.type === 'yolo' : a.type !== 'yolo'
-  );
+  const visibleAgents = AGENT_TYPES.filter(a => {
+    if (yoloMode) return a.type === 'yolo';
+    if (a.type === 'yolo') return false;
+    if (a.type === 'ux_design') return uxReviewRequired;
+    return true;
+  });
   const [runningType, setRunningType] = useState<AgentType | null>(null);
 
   const handleRunAgent = async (agentConfig: AgentConfig) => {

@@ -227,6 +227,13 @@ ${commentEntries}
   return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection });
 }
 
+export async function generateUxDesignMessage(
+  taskDocPath: string,
+  taskId: number,
+): Promise<string> {
+  return renderPrompt('ux-design', { taskDocPath, taskId });
+}
+
 export async function generatePoMessage(
   projectId: number,
   repoPath: string,

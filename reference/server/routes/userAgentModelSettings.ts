@@ -13,6 +13,7 @@ import express, { type Request, type Response } from 'express';
 import {
   loadAgentModelSettings,
   saveAgentModelSettings,
+  ensureUserAgentModelSettings,
   MissingUserAgentSettingsError,
 } from '../services/agentModelSettings.js';
 import { getCredentialStore } from '../services/credentials/registry.js';
@@ -33,12 +34,22 @@ import type { Provider } from '../../shared/providers/types.js';
 
 const router = express.Router();
 
-router.get('/', (req: Request, res: Response<GetUserAgentModelSettingsResponse | ApiError>) => {
+router.get('/', async (req: Request, res: Response<GetUserAgentModelSettingsResponse | ApiError>) => {
   try {
     const settings = loadAgentModelSettings(req.user!.id);
     res.json({ needsSeeding: false, settings });
   } catch (error) {
     if (error instanceof MissingUserAgentSettingsError) {
+      // Try to auto-seed from already-connected providers before giving up.
+      try {
+        const seeded = await ensureUserAgentModelSettings(req.user!.id);
+        if (seeded) {
+          const settings = loadAgentModelSettings(req.user!.id);
+          return res.json({ needsSeeding: false, settings });
+        }
+      } catch {
+        // Seeding failed — fall through to needsSeeding response.
+      }
       return res.json({ needsSeeding: true });
     }
     console.error('Error loading user agent model settings:', error);

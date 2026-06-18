@@ -30,7 +30,8 @@ export type AgentType =
   | 'refinement'
   | 'pr'
   | 'yolo'
-  | 'po';
+  | 'po'
+  | 'ux_design';
 
 export type AgentRunStatus =
   | 'pending'
