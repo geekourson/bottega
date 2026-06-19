@@ -9,6 +9,8 @@ export interface RunCommandOptions {
   // Maximum stdout/stderr buffer. Node's default is 1 MB; PR descriptions and
   // gh API JSON payloads can exceed that.
   maxBuffer?: number;
+  // Optional environment variables merged on top of process.env.
+  env?: Record<string, string>;
 }
 
 export interface RunCommandResult {
@@ -35,6 +37,7 @@ export async function runCommand(
     timeout: options.timeout ?? 30_000,
     maxBuffer: options.maxBuffer ?? 10 * 1024 * 1024,
     encoding: 'utf8',
+    env: options.env ? { ...process.env, ...options.env } : process.env,
   });
   return { stdout, stderr };
 }

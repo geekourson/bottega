@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import { runCommand } from './shell.js';
 import { assertValidBranchName } from './validators.js';
+import { getGitHubToken } from './githubCredentials.js';
 
 /**
  * Derive the worktree path for a task based on convention
@@ -350,8 +351,12 @@ export async function createPullRequest(
   taskId: number,
   title: string,
   body: string,
+  userId?: number,
+  projectId?: number,
 ): Promise<CreatePRResult> {
   const worktreePath = getWorktreePath(repoPath, taskId);
+  const ghToken = userId ? getGitHubToken(userId, projectId) : null;
+  const ghEnv = ghToken ? { GH_TOKEN: ghToken } : {};
 
   try {
     const branch = await getBranchName(worktreePath);
@@ -367,7 +372,7 @@ export async function createPullRequest(
     const { stdout } = await runCommand(
       'gh',
       ['pr', 'create', '--title', title, '--body', body],
-      { cwd: worktreePath },
+      { cwd: worktreePath, env: ghEnv },
     );
 
     return { success: true, url: stdout.trim() };
@@ -405,59 +410,91 @@ export interface PullRequestStatusResult {
 export async function getPullRequestStatus(
   repoPath: string,
   taskId: number,
+  userId?: number,
+  projectId?: number,
 ): Promise<PullRequestStatusResult> {
   const worktreePath = getWorktreePath(repoPath, taskId);
 
+  const ghToken = userId !== undefined ? getGitHubToken(userId, projectId) : null;
+  const ghEnv: Record<string, string> = ghToken ? { GH_TOKEN: ghToken } : {};
+
+  let prData: { url: string; state: string; mergeable: string } | null = null;
+
+  // Primary: gh pr view (detects PR from current branch)
   try {
     const { stdout } = await runCommand(
       'gh',
       ['pr', 'view', '--json', 'url,state,mergeable'],
-      { cwd: worktreePath },
+      { cwd: worktreePath, env: ghEnv },
     );
-    const prData = JSON.parse(stdout) as { url: string; state: string; mergeable: string };
+    prData = JSON.parse(stdout) as { url: string; state: string; mergeable: string };
+  } catch (viewErr) {
+    console.warn(`[getPullRequestStatus] gh pr view failed for task ${taskId}:`, viewErr);
+  }
 
-    let ciStatus: CIStatus = { status: 'none', checks: [] };
+  // Fallback: gh pr list --head <branch> (more explicit, works even when branch detection fails)
+  if (!prData) {
     try {
-      const { stdout: checksOutput } = await runCommand(
-        'gh',
-        ['pr', 'checks', '--json', 'bucket,name,state,link'],
-        { cwd: worktreePath },
-      );
-      const checks = JSON.parse(checksOutput) as CICheck[];
-
-      if (checks.length > 0) {
-        const hasFailed = checks.some((c) => c.bucket === 'fail');
-        const hasPending = checks.some((c) => c.bucket === 'pending');
-        const allPassed = checks.every((c) => c.bucket === 'pass' || c.bucket === 'skipping');
-
-        if (hasFailed) {
-          ciStatus = { status: 'failed', checks };
-        } else if (hasPending) {
-          ciStatus = { status: 'pending', checks };
-        } else if (allPassed) {
-          ciStatus = { status: 'passed', checks };
-        } else {
-          ciStatus = { status: 'unknown', checks };
+      const branch = await getBranchName(worktreePath);
+      if (branch) {
+        const { stdout } = await runCommand(
+          'gh',
+          ['pr', 'list', '--head', branch, '--json', 'url,state,mergeable', '--limit', '1'],
+          { cwd: worktreePath, env: ghEnv },
+        );
+        const list = JSON.parse(stdout) as { url: string; state: string; mergeable: string }[];
+        if (list.length > 0) {
+          prData = list[0] ?? null;
         }
       }
-    } catch (checksError) {
-      const code = (checksError as { code?: number }).code;
-      if (code === 8) {
-        ciStatus = { status: 'pending', checks: [] };
-      }
+    } catch (listErr) {
+      console.warn(`[getPullRequestStatus] gh pr list fallback failed for task ${taskId}:`, listErr);
     }
+  }
 
-    return {
-      success: true,
-      exists: true,
-      url: prData.url,
-      state: prData.state,
-      mergeable: prData.mergeable,
-      ciStatus,
-    };
-  } catch {
+  if (!prData) {
     return { success: true, exists: false };
   }
+
+  let ciStatus: CIStatus = { status: 'none', checks: [] };
+  try {
+    const { stdout: checksOutput } = await runCommand(
+      'gh',
+      ['pr', 'checks', '--json', 'bucket,name,state,link'],
+      { cwd: worktreePath, env: ghEnv },
+    );
+    const checks = JSON.parse(checksOutput) as CICheck[];
+
+    if (checks.length > 0) {
+      const hasFailed = checks.some((c) => c.bucket === 'fail');
+      const hasPending = checks.some((c) => c.bucket === 'pending');
+      const allPassed = checks.every((c) => c.bucket === 'pass' || c.bucket === 'skipping');
+
+      if (hasFailed) {
+        ciStatus = { status: 'failed', checks };
+      } else if (hasPending) {
+        ciStatus = { status: 'pending', checks };
+      } else if (allPassed) {
+        ciStatus = { status: 'passed', checks };
+      } else {
+        ciStatus = { status: 'unknown', checks };
+      }
+    }
+  } catch (checksError) {
+    const code = (checksError as { code?: number }).code;
+    if (code === 8) {
+      ciStatus = { status: 'pending', checks: [] };
+    }
+  }
+
+  return {
+    success: true,
+    exists: true,
+    url: prData.url,
+    state: prData.state,
+    mergeable: prData.mergeable,
+    ciStatus,
+  };
 }
 
 /**
@@ -466,8 +503,12 @@ export async function getPullRequestStatus(
 export async function mergeAndCleanup(
   repoPath: string,
   taskId: number,
+  userId?: number,
+  projectId?: number,
 ): Promise<RemoveWorktreeResult> {
   const worktreePath = getWorktreePath(repoPath, taskId);
+  const ghToken = userId ? getGitHubToken(userId, projectId) : null;
+  const ghEnv = ghToken ? { GH_TOKEN: ghToken } : {};
 
   try {
     const branch = await getBranchName(worktreePath);
@@ -477,7 +518,7 @@ export async function mergeAndCleanup(
     let lastMergeError: Error | null = null;
     for (let mergeAttempt = 0; mergeAttempt < 3 && !merged; mergeAttempt++) {
       try {
-        await runCommand('gh', ['pr', 'merge', '--merge'], { cwd: worktreePath });
+        await runCommand('gh', ['pr', 'merge', '--merge'], { cwd: worktreePath, env: ghEnv });
         merged = true;
       } catch (mergeError) {
         lastMergeError = mergeError instanceof Error ? mergeError : new Error(String(mergeError));
@@ -525,7 +566,7 @@ export async function mergeAndCleanup(
     }
 
     await runCommand('git', ['checkout', mainBranch], { cwd: repoPath });
-    await runCommand('git', ['pull'], { cwd: repoPath });
+    await runCommand('git', ['pull', '--autostash'], { cwd: repoPath });
 
     return { success: true };
   } catch (error) {

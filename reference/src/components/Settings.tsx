@@ -11,6 +11,7 @@ import AgentModelsTab from './AgentModelsTab';
 import ApiKeyPanel from './ApiKeyPanel';
 import CodexAuthPanel from './CodexAuthPanel';
 import ClaudeAuthPanel from './ClaudeAuthPanel';
+import GitHubAuthPanel from './GitHubAuthPanel';
 import OpenCodeAuthPanel from './OpenCodeAuthPanel';
 import OllamaAuthPanel from './OllamaAuthPanel';
 import LocalAiAuthPanel from './LocalAiAuthPanel';
@@ -18,7 +19,7 @@ import McpServersTab from './McpServersTab';
 import type { ProjectRow } from '../../shared/types/db';
 import type { ApiError } from '../../shared/api/_common';
 
-export type SettingsTab = 'tools' | 'appearance' | 'prompts' | 'agentModels' | 'account' | 'providers' | 'mcp';
+export type SettingsTab = 'tools' | 'appearance' | 'prompts' | 'agentModels' | 'account' | 'providers' | 'mcp' | 'integrations';
 type SaveStatus = 'success' | 'error' | null;
 
 export interface SettingsProps {
@@ -382,6 +383,17 @@ function Settings({
               >
                 MCP
               </button>
+              <button
+                onClick={() => setActiveTab('integrations')}
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'integrations'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+                data-testid="settings-tab-integrations"
+              >
+                Integrations
+              </button>
             </div>
           </div>
 
@@ -715,6 +727,13 @@ function Settings({
             {activeTab === 'agentModels' && (
               <div className="min-h-[500px]">
                 <AgentModelsTab />
+              </div>
+            )}
+
+            {/* Integrations Tab — external services (GitHub, etc.) */}
+            {activeTab === 'integrations' && (
+              <div className="space-y-8">
+                <GitHubAuthPanel />
               </div>
             )}
 

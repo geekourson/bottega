@@ -64,6 +64,7 @@ import {
 import authRoutes from './routes/auth.js';
 import accountRoutes from './routes/account.js';
 import claudeAuthRoutes from './routes/claudeAuth.js';
+import githubAuthRoutes from './routes/githubAuth.js';
 import codexAuthRoutes from './routes/codexAuth.js';
 import openCodeAuthRoutes from './routes/openCodeAuth.js';
 import ollamaAuthRoutes from './routes/ollamaAuth.js';
@@ -197,6 +198,7 @@ app.use('/api/app-settings', appSettingsRoutes);
 app.use('/api/account', accountRoutes);
 
 app.use('/api/claude-auth', authenticateToken, claudeAuthRoutes);
+app.use('/api/github-auth', authenticateToken, githubAuthRoutes);
 app.use('/api/codex-auth', authenticateToken, codexAuthRoutes);
 app.use('/api/opencode-auth', authenticateToken, openCodeAuthRoutes);
 app.use('/api/ollama-auth', authenticateToken, ollamaAuthRoutes);

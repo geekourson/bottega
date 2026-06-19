@@ -22,6 +22,8 @@ import { cn } from '../lib/utils';
 import { api } from '../utils/api';
 import { cleanupWorktreeOnComplete } from '../utils/worktreeCleanup';
 import { useClaudeAuth } from '../contexts/ClaudeAuthContext';
+import { useWebSocket } from '../contexts/WebSocketContext';
+import type { ServerMessageOf } from '../../shared/websocket/messages';
 import type { Provider } from '../../shared/providers/types';
 import type {
   ProjectRow,
@@ -157,6 +159,7 @@ function TaskDetailView({
   className
 }: TaskDetailViewProps) {
   const { requireClaudeAuth } = useClaudeAuth();
+  const { subscribe, unsubscribe } = useWebSocket();
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isUpdatingWorkflow, setIsUpdatingWorkflow] = useState(false);
@@ -223,6 +226,29 @@ function TaskDetailView({
 
     void loadWorktreeStatus();
   }, [task?.id]);
+
+  // Refresh PR status when the PR agent completes
+  useEffect(() => {
+    if (!task?.id) return;
+
+    const handleAgentRunUpdated = (message: ServerMessageOf<'agent-run-updated'>) => {
+      const { taskId, agentRun } = message;
+      if (taskId !== task.id || agentRun?.agent_type !== 'pr' || agentRun?.status !== 'completed') return;
+
+      void (async () => {
+        const prResponse = await api.tasks.getPR(task.id);
+        if (prResponse.ok) {
+          const prData = await prResponse.json();
+          setPrStatus(prData as PRStatus);
+        }
+      })();
+    };
+
+    subscribe('agent-run-updated', handleAgentRunUpdated);
+    return () => {
+      unsubscribe('agent-run-updated', handleAgentRunUpdated);
+    };
+  }, [subscribe, unsubscribe, task?.id]);
 
   // Fetch web server status when project changes
   useEffect(() => {

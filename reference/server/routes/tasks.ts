@@ -1005,6 +1005,8 @@ router.post(
         taskId,
         title,
         body || '',
+        userId,
+        taskWithProject.project_id,
       );
       res.json(result);
     } catch (error) {
@@ -1034,7 +1036,12 @@ router.get(
         return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
       }
 
-      const status = await getPullRequestStatus(taskWithProject.repo_folder_path, taskId);
+      const status = await getPullRequestStatus(
+        taskWithProject.repo_folder_path,
+        taskId,
+        userId,
+        taskWithProject.project_id,
+      );
       res.json(status);
     } catch (error) {
       console.error('Error getting pull request status:', error);
@@ -1069,6 +1076,8 @@ router.post(
       const result = (await mergeAndCleanup(
         taskWithProject.repo_folder_path,
         taskId,
+        userId,
+        taskWithProject.project_id,
       )) as {
         success: boolean;
         serverSwitched?: boolean;

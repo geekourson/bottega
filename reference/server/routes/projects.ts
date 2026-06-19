@@ -1,5 +1,5 @@
 import express, { type Request, type Response } from 'express';
-import { projectsDb } from '../database/db.js';
+import { projectsDb, projectSettingsDb } from '../database/db.js';
 import {
   getAllProjects,
   getProject,
@@ -29,6 +29,10 @@ import {
   UpdateProjectBodySchema,
   type UpdateProjectBody,
 } from '../../shared/schemas/projects.js';
+import {
+  UpdateProjectSettingsBodySchema,
+  type UpdateProjectSettingsBody,
+} from '../../shared/schemas/github.js';
 
 const router = express.Router();
 
@@ -201,6 +205,62 @@ router.post(
         res.status(500).json({ error: 'Failed to save file' });
       }
     });
+  },
+);
+
+// GET /projects/:id/settings
+router.get(
+  '/:id/settings',
+  validateParams(IdParamsSchema),
+  (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const { id: projectId } = req.validated!.params as IdParams;
+
+      const project = getProject(projectId, userId);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' } satisfies ApiError);
+      }
+
+      const githubToken = projectSettingsDb.getValue(projectId, 'github_token');
+      res.json({ github_token_set: Boolean(githubToken) });
+    } catch (error) {
+      console.error('Error getting project settings:', error);
+      res.status(500).json({ error: 'Failed to get project settings' } satisfies ApiError);
+    }
+  },
+);
+
+// PUT /projects/:id/settings
+router.put(
+  '/:id/settings',
+  validateParams(IdParamsSchema),
+  validateBody(UpdateProjectSettingsBodySchema),
+  (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const { id: projectId } = req.validated!.params as IdParams;
+      const body = req.validated!.body as UpdateProjectSettingsBody;
+
+      const project = getProject(projectId, userId);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' } satisfies ApiError);
+      }
+
+      if (body.github_token !== undefined) {
+        if (body.github_token) {
+          projectSettingsDb.setValue(projectId, 'github_token', body.github_token);
+        } else {
+          projectSettingsDb.deleteValue(projectId, 'github_token');
+        }
+      }
+
+      const githubToken = projectSettingsDb.getValue(projectId, 'github_token');
+      res.json({ github_token_set: Boolean(githubToken) });
+    } catch (error) {
+      console.error('Error updating project settings:', error);
+      res.status(500).json({ error: 'Failed to update project settings' } satisfies ApiError);
+    }
   },
 );
 

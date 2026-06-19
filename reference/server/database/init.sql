@@ -187,3 +187,16 @@ CREATE TABLE IF NOT EXISTS user_agent_model_settings (
     settings_json TEXT NOT NULL,
     updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Per-project settings (key/value). Used for project-level GitHub token override, etc.
+CREATE TABLE IF NOT EXISTS project_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    UNIQUE(project_id, key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_settings_project_id ON project_settings(project_id);

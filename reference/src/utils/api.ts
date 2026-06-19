@@ -259,6 +259,22 @@ export const api = {
       }),
   },
 
+  githubAuth: {
+    status: (): TypedFetch<unknown> =>
+      authenticatedFetch<unknown>('/api/github-auth/status'),
+    startDeviceFlow: (): TypedFetch<unknown> =>
+      authenticatedFetch<unknown>('/api/github-auth/device/start', { method: 'POST' }),
+    cancelDeviceFlow: (): TypedFetch<unknown> =>
+      authenticatedFetch<unknown>('/api/github-auth/device/cancel', { method: 'POST' }),
+    saveToken: (token: string): TypedFetch<unknown> =>
+      authenticatedFetch<unknown>('/api/github-auth/token', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      }),
+    disconnect: (): TypedFetch<unknown> =>
+      authenticatedFetch<unknown>('/api/github-auth', { method: 'DELETE' }),
+  },
+
   claudeAuth: {
     status: (): TypedFetch<ClaudeAuthStatusResponse> =>
       authenticatedFetch<ClaudeAuthStatusResponse>('/api/claude-auth/status'),
@@ -431,6 +447,16 @@ export const api = {
         headers: {}, // Let browser set Content-Type for FormData
       });
     },
+    getSettings: (projectId: number): TypedFetch<unknown> =>
+      authenticatedFetch<unknown>(`/api/projects/${projectId}/settings`),
+    updateSettings: (
+      projectId: number,
+      settings: { github_token?: string },
+    ): TypedFetch<unknown> =>
+      authenticatedFetch<unknown>(`/api/projects/${projectId}/settings`, {
+        method: 'PUT',
+        body: JSON.stringify(settings),
+      }),
   },
 
   // Tasks API

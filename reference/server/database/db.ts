@@ -661,6 +661,16 @@ const runMigrations = (): void => {
         settings_json TEXT NOT NULL,
         updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+      CREATE TABLE IF NOT EXISTS project_settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        UNIQUE(project_id, key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_project_settings_project_id ON project_settings(project_id);
     `);
 
     backfillUserAgentModelSettings(db);
@@ -1686,6 +1696,43 @@ const userAgentModelSettingsDb = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// projectSettingsDb — per-project key/value settings
+// ---------------------------------------------------------------------------
+
+const projectSettingsDb = {
+  getValue: (projectId: number, key: string): string | null => {
+    const row = db
+      .prepare('SELECT value FROM project_settings WHERE project_id = ? AND key = ?')
+      .get(projectId, key) as { value: string } | undefined;
+    return row?.value ?? null;
+  },
+
+  setValue: (projectId: number, key: string, value: string): void => {
+    if (typeof value !== 'string') {
+      throw new Error('project_settings value must be a string');
+    }
+    db.prepare(
+      `INSERT INTO project_settings (project_id, key, value, updated_at)
+       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(project_id, key) DO UPDATE SET
+         value = excluded.value,
+         updated_at = CURRENT_TIMESTAMP`
+    ).run(projectId, key, value);
+  },
+
+  deleteValue: (projectId: number, key: string): void => {
+    db.prepare('DELETE FROM project_settings WHERE project_id = ? AND key = ?').run(projectId, key);
+  },
+
+  getAll: (projectId: number): Record<string, string> => {
+    const rows = db
+      .prepare('SELECT key, value FROM project_settings WHERE project_id = ?')
+      .all(projectId) as { key: string; value: string }[];
+    return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  },
+};
+
 export {
   db,
   initializeDatabase,
@@ -1697,6 +1744,7 @@ export {
   agentRunsDb,
   appSettingsDb,
   userAgentModelSettingsDb,
+  projectSettingsDb,
 };
 
 // Re-export the row types so `.js` consumers can JSDoc-import from this module

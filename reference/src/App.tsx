@@ -8,6 +8,7 @@ import { WebSocketProvider } from './contexts/WebSocketContext';
 import { TaskContextProvider } from './contexts/TaskContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { ClaudeAuthProvider } from './contexts/ClaudeAuthContext';
+import { GitHubAuthProvider } from './contexts/GitHubAuthContext';
 import { ConnectedProvidersProvider } from './contexts/ConnectedProvidersContext';
 import ProtectedRoute from './components/ProtectedRoute';
 
@@ -70,6 +71,7 @@ function App() {
             <ToastProvider>
               <ProtectedRoute>
                 <ClaudeAuthProvider>
+                  <GitHubAuthProvider>
                   <ConnectedProvidersProvider>
                   <Router>
                     <AppWrapper>
@@ -104,6 +106,7 @@ function App() {
                     </AppWrapper>
                   </Router>
                   </ConnectedProvidersProvider>
+                  </GitHubAuthProvider>
                 </ClaudeAuthProvider>
               </ProtectedRoute>
             </ToastProvider>
