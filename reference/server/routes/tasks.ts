@@ -902,6 +902,54 @@ router.get(
 );
 
 router.post(
+  '/tasks/:id/worktree',
+  validateParams(IdParamsSchema),
+  async (req: Request, res: Response<unknown>) => {
+    try {
+      const userId = req.user!.id;
+      const { id: taskId } = req.validated!.params as IdParams;
+
+      const taskWithProject = tasksDb.getWithProject(taskId);
+      if (!taskWithProject) {
+        return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
+      }
+      if (!hasProjectAccess(taskWithProject.project_id, userId)) {
+        return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
+      }
+      if (taskWithProject.status !== 'pending') {
+        return res.status(409).json({ error: 'Worktree can only be created for pending tasks' } satisfies ApiError);
+      }
+
+      const isGit = await isGitRepository(taskWithProject.repo_folder_path);
+      if (!isGit) {
+        return res.status(409).json({ error: 'Project is not a git repository' } satisfies ApiError);
+      }
+
+      if (await worktreeExists(taskWithProject.repo_folder_path, taskId)) {
+        return res.status(409).json({ error: 'Worktree already exists' } satisfies ApiError);
+      }
+
+      const result = await createWorktree(
+        taskWithProject.repo_folder_path,
+        taskId,
+        taskWithProject.title,
+        taskWithProject.subproject_path ?? null,
+      );
+
+      if (!result.success) {
+        return res.status(500).json({ error: `Failed to create worktree: ${result.error}` } satisfies ApiError);
+      }
+
+      const status = await getWorktreeStatus(taskWithProject.repo_folder_path, taskId);
+      res.status(201).json(status);
+    } catch (error) {
+      console.error('Error creating worktree:', error);
+      res.status(500).json({ error: 'Failed to create worktree' } satisfies ApiError);
+    }
+  },
+);
+
+router.post(
   '/tasks/:id/sync',
   validateParams(IdParamsSchema),
   async (req: Request, res: Response<unknown>) => {

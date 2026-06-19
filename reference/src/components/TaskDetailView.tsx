@@ -170,6 +170,7 @@ function TaskDetailView({
   const [isCreatingPR, setIsCreatingPR] = useState(false);
   const [isMerging, setIsMerging] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
+  const [isTogglingWorktree, setIsTogglingWorktree] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
   const [isCreatingCIFixConversation, setIsCreatingCIFixConversation] = useState(false);
   const [showCIFixModal, setShowCIFixModal] = useState(false);
@@ -360,6 +361,42 @@ function TaskDetailView({
       setWorktreeError((err as Error).message);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleWorktreeToggle = async () => {
+    if (!task?.id || isTogglingWorktree) return;
+    setIsTogglingWorktree(true);
+    setWorktreeError(null);
+    try {
+      if (worktreeStatus) {
+        // Disable: delete the worktree (force=true since it's pending, no meaningful changes)
+        const response = await api.tasks.discardWorktree(task.id, true);
+        if (response.ok) {
+          setWorktreeStatus(null);
+        } else {
+          const data = await response.json() as { error?: string };
+          setWorktreeError(data.error || 'Failed to remove worktree');
+        }
+      } else {
+        // Enable: create a worktree
+        const response = await api.tasks.createWorktree(task.id);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success) {
+            setWorktreeStatus(data);
+          } else {
+            setWorktreeError((data as { error?: string }).error || 'Failed to create worktree');
+          }
+        } else {
+          const data = await response.json() as { error?: string };
+          setWorktreeError(data.error || 'Failed to create worktree');
+        }
+      }
+    } catch (err) {
+      setWorktreeError((err as Error).message);
+    } finally {
+      setIsTogglingWorktree(false);
     }
   };
 
@@ -863,20 +900,47 @@ Please:
         </div>
       </div>
 
-      {/* Worktree section - only show if worktree exists */}
-      {worktreeStatus && (
+      {/* Worktree section */}
+      {(worktreeStatus || task?.status === 'pending') && (
         <div className="px-4 py-3 border-b border-border bg-muted/30">
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+            {/* Worktree toggle — only for pending tasks */}
+            {task?.status === 'pending' && (
+              <button
+                onClick={handleWorktreeToggle}
+                disabled={isTogglingWorktree}
+                className={cn(
+                  'flex items-center gap-2 text-sm rounded-full px-3 py-1 border transition-colors flex-shrink-0',
+                  worktreeStatus
+                    ? 'border-green-500/50 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-600 dark:hover:text-red-400'
+                    : 'border-border bg-muted text-muted-foreground hover:bg-muted/80',
+                  isTogglingWorktree && 'opacity-50 cursor-not-allowed',
+                )}
+                title={worktreeStatus ? 'Supprimer le worktree (travail sur master)' : 'Créer un worktree (branche isolée)'}
+              >
+                {isTogglingWorktree ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <GitBranch className="w-3.5 h-3.5" />
+                )}
+                <span>{worktreeStatus ? 'Worktree actif' : 'Pas de worktree'}</span>
+              </button>
+            )}
+
             {/* Branch info */}
-            <div className="flex items-center gap-2 min-w-0">
-              <GitBranch className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-              <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded truncate">
-                {worktreeStatus.branch}
-              </span>
-            </div>
+            {worktreeStatus && (
+              <div className="flex items-center gap-2 min-w-0">
+                {task?.status !== 'pending' && (
+                  <GitBranch className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                )}
+                <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded truncate">
+                  {worktreeStatus.branch}
+                </span>
+              </div>
+            )}
 
             {/* Ahead/behind indicators */}
-            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            {worktreeStatus && <div className="flex items-center gap-3 text-sm text-muted-foreground">
               {worktreeStatus.ahead > 0 && (
                 <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
                   <ArrowUpRight className="w-3.5 h-3.5" />
@@ -892,10 +956,10 @@ Please:
               {worktreeStatus.ahead === 0 && worktreeStatus.behind === 0 && (
                 <span className="text-muted-foreground">Up to date with {worktreeStatus.mainBranch}</span>
               )}
-            </div>
+            </div>}
 
             {/* Actions */}
-            <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+            {worktreeStatus && <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
               {/* Pull button - syncs with main branch */}
               <Button
                 variant="outline"
@@ -1099,7 +1163,7 @@ Please:
               >
                 <Copy className="w-3.5 h-3.5" />
               </Button>
-            </div>
+            </div>}
           </div>
 
           {/* Error message */}

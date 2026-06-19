@@ -504,6 +504,8 @@ export const api = {
     // Worktree methods (git isolation)
     getWorktree: (id: number): TypedFetch<WorktreeStatusResponse> =>
       authenticatedFetch<WorktreeStatusResponse>(`/api/tasks/${id}/worktree`),
+    createWorktree: (id: number): TypedFetch<WorktreeStatusResponse> =>
+      authenticatedFetch<WorktreeStatusResponse>(`/api/tasks/${id}/worktree`, { method: 'POST' }),
     syncWorktree: (id: number): TypedFetch<SyncWorktreeResponse> =>
       authenticatedFetch<SyncWorktreeResponse>(`/api/tasks/${id}/sync`, {
         method: 'POST',

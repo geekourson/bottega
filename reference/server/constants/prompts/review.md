@@ -60,7 +60,25 @@ If ANY checked item fails verification → the final status is NEEDS_WORK, regar
 - Phase 2: FAILED — [file does not exist / method missing / etc.]
 ```
 
-### 3. Run Unit Tests
+### 3. Build / Compile Check
+
+> **⚠️ MANDATORY — do not skip.** If the code does not compile, all subsequent steps are meaningless.
+
+1. **Find the build command** — check `CLAUDE.md` first, then look for common build files:
+   - TypeScript project → `pnpm build` or `npx tsc --noEmit`
+   - Java/Gradle → `./gradlew build --dry-run` then `./gradlew compileJava`
+   - Java/Maven → `mvn compile`
+   - Rust → `cargo build`
+   - Go → `go build ./...`
+   - Makefile present → `make build` or `make`
+   - Other → search for a `build` or `compile` script in `package.json`, `Makefile`, `justfile`, etc.
+2. **Run the build command** in the worktree directory.
+3. **If the build fails for any reason:**
+   - Status is immediately **NEEDS_WORK** — do NOT proceed to unit tests or Playwright
+   - Document the exact compiler error(s) under `### Build Errors` in the Review Findings
+   - Stop here and go directly to Step 7 (Update Task Documentation)
+
+### 4. Run Unit Tests
 Run the project's unit tests:
 1. **First run targeted tests** for the files you changed/reviewed (check CLAUDE.md for the test command)
 2. **Then run the full test suite** using `run_in_background: true` on the Bash tool (full suites can take 5-15+ minutes)
@@ -68,7 +86,7 @@ Run the project's unit tests:
 4. **Wait for backgrounded tests** before re-launching — do NOT start parallel test runs, they compete for resources. Only re-run after the previous one completes
 - Report any failures or issues found
 
-### 4. Manual Testing with Playwright MCP
+### 5. Manual Testing with Playwright MCP
 Follow the manual testing scenarios from the Testing Strategy section.
 
 **CRITICAL: Server Isolation Rules**
@@ -102,7 +120,7 @@ Testing steps:
 - Every scenario must be either: PASS, FAIL, or BLOCKED
 - If you cannot perform a test for ANY reason (missing access, unclear steps, dependencies), mark the task as BLOCKED - do NOT mark the test as "skipped"
 
-### 5. Evaluate Completion Status
+### 6. Evaluate Completion Status
 
 > **⚠️ CRITICAL DECISION POINT**
 > This step determines whether the feature is ready for user review or needs more work.
@@ -110,6 +128,7 @@ Testing steps:
 Based on your findings from steps 2-4, determine if the feature is **READY**, **NEEDS_WORK**, or **BLOCKED**:
 
 **READY** - All of the following must be true:
+- Build/compilation succeeds with no errors
 - All unit tests pass
 - All manual testing scenarios pass
 - No implementation issues found
@@ -117,6 +136,7 @@ Based on your findings from steps 2-4, determine if the feature is **READY**, **
 - If a `## UX Design` section exists in the task doc: the implementation matches the design (layout, components, interactions, copy)
 
 **NEEDS_WORK** - Any of the following:
+- Build/compilation fails
 - Any checked To-Do item failed verification in Step 2
 - Unit tests fail
 - Manual testing reveals issues
@@ -137,7 +157,7 @@ Based on your findings from steps 2-4, determine if the feature is **READY**, **
 **Key question:** "Are there uncompleted checklist items that I physically cannot complete?"
 If YES → BLOCKED (even if the code works perfectly)
 
-### 6. Update Task Documentation
+### 7. Update Task Documentation
 Update the task documentation file at `{{taskDocPath}}`:
 
 **The "Review Findings" section must reflect ONLY the current state of testing.**
@@ -153,13 +173,17 @@ Update the task documentation file at `{{taskDocPath}}`:
 
 **Status:** NEEDS_WORK
 
-### Unit Tests
+### Build
 - Result: [PASS/FAIL]
+- Errors: [list compiler errors if build failed, or omit if build passed]
+
+### Unit Tests
+- Result: [PASS/FAIL/SKIPPED — skipped if build failed]
 - Failures: [list any test failures]
 
 ### Manual Testing
 - [x] Scenario 1: [PASS - description]
-- [ ] Scenario 2: [FAIL - what went wrong]
+- [ ] Scenario 2: [FAIL - what went wrong / SKIPPED - build failed]
 
 ### UX Issues
 - [List any discrepancies between the implementation and the ## UX Design section, or omit this subsection if no UX Design section exists]
