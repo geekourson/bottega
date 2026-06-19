@@ -103,6 +103,7 @@ export interface TaskDetailViewProps {
   onStatusChange?: (taskId: number, newStatus: TaskStatus) => Promise<unknown>;
   onWorkflowCompleteChange?: (taskId: number, value: boolean) => Promise<unknown>;
   onResumeWorkflow?: (taskId: number) => Promise<unknown>;
+  isQueued?: boolean;
   onApproveUxDesign?: (taskId: number) => Promise<unknown>;
   onResetTask?: (taskId: number) => Promise<void>;
   onUpdateTaskFlags?: (taskId: number, patch: { yolo_mode?: boolean; ux_review_required?: boolean }) => Promise<void>;
@@ -152,6 +153,7 @@ function TaskDetailView({
   onDeleteConversation,
   onRenameConversation,
   onCIFixConversationCreated,
+  isQueued = false,
   className
 }: TaskDetailViewProps) {
   const { requireClaudeAuth } = useClaudeAuth();
@@ -1258,6 +1260,12 @@ Please:
                     <Zap className="w-3 h-3" />
                     YOLO
                   </button>
+                </div>
+              )}
+              {isQueued && (
+                <div className="mx-0 mb-2 flex items-center gap-2 rounded-md border border-purple-500/40 bg-purple-500/10 px-3 py-2 text-xs text-purple-700 dark:text-purple-300 flex-shrink-0">
+                  <div className="h-2 w-2 rounded-full bg-purple-500 animate-pulse flex-shrink-0" />
+                  En attente du GPU local — cet agent démarrera automatiquement quand le GPU sera libre.
                 </div>
               )}
               <AgentSection

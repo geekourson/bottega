@@ -217,6 +217,12 @@ export type ServerToClientMessage =
       taskId: TaskId;
       reason: string;
     }
+  | {
+      type: 'task-queued';
+      taskId: TaskId;
+      /** 1-based position in the local GPU queue. */
+      position: number;
+    }
   // ---- Context usage ----
   //
   // `data` is intentionally `unknown` here. The server emits a hybrid shape

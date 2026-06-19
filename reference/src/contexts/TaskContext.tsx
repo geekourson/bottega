@@ -169,6 +169,10 @@ export interface TaskContextValue {
   // Tasks with an agent waiting for an answer to an AskUserQuestion
   awaitingQuestionTaskIds: Set<number>;
   isTaskAwaitingQuestion: (taskId: number) => boolean;
+
+  // Tasks waiting in the local GPU sequential queue
+  queuedTaskIds: Set<number>;
+  isTaskQueued: (taskId: number) => boolean;
 }
 
 const TaskContext = createContext<TaskContextValue | null>(null);
@@ -207,6 +211,9 @@ export function TaskContextProvider({ children }: { children: ReactNode }) {
   // Tasks waiting for an answer to an AskUserQuestion
   const [awaitingQuestionTaskIds, setAwaitingQuestionTaskIds] = useState<Set<number>>(new Set());
   const awaitingQuestionTaskIdsRef = useRef<Set<number>>(new Set());
+
+  const [queuedTaskIds, setQueuedTaskIds] = useState<Set<number>>(new Set());
+  const queuedTaskIdsRef = useRef<Set<number>>(new Set());
 
   // Conversations state (for currently selected task)
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -814,21 +821,54 @@ export function TaskContextProvider({ children }: { children: ReactNode }) {
       if (typeof message.taskId === 'number') clearAwaitingQuestion(message.taskId);
     };
 
+    const handleTaskQueued = (message: ServerMessageOf<'task-queued'>) => {
+      const { taskId } = message;
+      setQueuedTaskIds((prev) => {
+        if (prev.has(taskId)) return prev;
+        const next = new Set(prev);
+        next.add(taskId);
+        queuedTaskIdsRef.current = next;
+        return next;
+      });
+    };
+
+    const clearQueued = (taskId: number) => {
+      setQueuedTaskIds((prev) => {
+        if (!prev.has(taskId)) return prev;
+        const next = new Set(prev);
+        next.delete(taskId);
+        queuedTaskIdsRef.current = next;
+        return next;
+      });
+    };
+
+    const handleStreamingStartedClearQueue = (message: ServerMessageOf<'streaming-started'>) => {
+      if (typeof message.taskId === 'number') clearQueued(message.taskId);
+    };
+
     subscribe('streaming-started', handleStreamingStarted);
+    subscribe('streaming-started', handleStreamingStartedClearQueue);
     subscribe('streaming-ended', handleStreamingEnded);
     subscribe('awaiting-user-answer', handleAwaitingUserAnswer);
     subscribe('ask-user-question-resolved', handleQuestionResolved);
+    subscribe('task-queued', handleTaskQueued);
 
     return () => {
       unsubscribe('streaming-started', handleStreamingStarted);
+      unsubscribe('streaming-started', handleStreamingStartedClearQueue);
       unsubscribe('streaming-ended', handleStreamingEnded);
       unsubscribe('awaiting-user-answer', handleAwaitingUserAnswer);
       unsubscribe('ask-user-question-resolved', handleQuestionResolved);
+      unsubscribe('task-queued', handleTaskQueued);
     };
   }, [subscribe, unsubscribe]);
 
   const isTaskLive = useCallback((taskId: number): boolean => {
     return liveTaskIdsRef.current.has(taskId);
+  }, []);
+
+  const isTaskQueued = useCallback((taskId: number): boolean => {
+    return queuedTaskIdsRef.current.has(taskId);
   }, []);
 
   const isTaskAwaitingQuestion = useCallback((taskId: number): boolean => {
@@ -909,6 +949,10 @@ export function TaskContextProvider({ children }: { children: ReactNode }) {
     // Tasks awaiting an answer
     awaitingQuestionTaskIds,
     isTaskAwaitingQuestion,
+
+    // Tasks waiting in the local GPU queue
+    queuedTaskIds,
+    isTaskQueued,
   };
 
   return <TaskContext.Provider value={value}>{children}</TaskContext.Provider>;

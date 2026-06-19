@@ -57,6 +57,7 @@ export interface BoardTaskCardProps {
   isLive?: boolean | undefined;
   isBlocked?: boolean | undefined;
   isAwaitingQuestion?: boolean | undefined;
+  isQueued?: boolean | undefined;
   agentRuns?: AgentRunRow[] | undefined;
   conversationCount?: number | undefined;
   docPreview?: string | undefined;
@@ -73,6 +74,7 @@ function BoardTaskCard({
   isLive = false,
   isBlocked = false,
   isAwaitingQuestion = false,
+  isQueued = false,
   agentRuns = [],
   conversationCount = 0,
   docPreview = '',
@@ -133,7 +135,9 @@ function BoardTaskCard({
             ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.1)]'
             : isBlocked
               ? 'border-red-600/60 bg-red-950/10'
-              : 'border-border hover:border-primary/30'
+              : isQueued
+                ? 'border-purple-500/50 bg-purple-500/5'
+                : 'border-border hover:border-primary/30'
       )}
     >
       {/* AWAITING-ANSWER indicator (takes precedence — it needs the user) */}
@@ -165,11 +169,20 @@ function BoardTaskCard({
         </div>
       )}
 
+      {/* QUEUED indicator */}
+      {isQueued && !isLive && !isBlocked && !isAwaitingQuestion && (
+        <div className="absolute top-2 right-2">
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-600 text-white">
+            EN QUEUE
+          </span>
+        </div>
+      )}
+
       {/* Task title */}
       <h4 className={cn(
         'font-semibold text-sm text-foreground leading-tight',
         'line-clamp-2',
-        (isLive || isBlocked || isAwaitingQuestion) && 'pr-20' // Make room for the indicator
+        (isLive || isBlocked || isAwaitingQuestion || isQueued) && 'pr-20' // Make room for the indicator
       )}>
         {task.title || `Task ${task.id}`}
       </h4>

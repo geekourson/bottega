@@ -70,6 +70,7 @@ export interface BoardColumnProps {
   taskConversationCounts?: Record<number, number>;
   isTaskLive?: (taskId: number) => boolean;
   isTaskAwaitingQuestion?: (taskId: number) => boolean;
+  isTaskQueued?: (taskId: number) => boolean;
   taskAgentRuns?: Record<number, AgentRunRow[]>;
   onTaskClick?: (task: TaskRow) => void;
   onTaskEdit?: (task: TaskRow) => void;
@@ -89,6 +90,7 @@ function BoardColumn({
   taskConversationCounts = {},
   isTaskLive,
   isTaskAwaitingQuestion,
+  isTaskQueued,
   taskAgentRuns = {},
   onTaskClick,
   onTaskEdit,
@@ -188,6 +190,7 @@ function BoardColumn({
                 isLive={isTaskLive?.(task.id) ?? false}
                 isBlocked={!!task.workflow_blocked}
                 isAwaitingQuestion={isTaskAwaitingQuestion?.(task.id) ?? false}
+                isQueued={isTaskQueued?.(task.id) ?? false}
                 agentRuns={taskAgentRuns[task.id]}
                 conversationCount={
                   taskConversationCounts[task.id] ??

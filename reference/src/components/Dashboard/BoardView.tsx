@@ -74,6 +74,7 @@ function BoardView({ className, project }: BoardViewProps) {
     deleteTask,
     isTaskLive,
     isTaskAwaitingQuestion,
+    isTaskQueued,
     loadTasks,
   } = useTaskContext();
 
@@ -627,6 +628,7 @@ function BoardView({ className, project }: BoardViewProps) {
           taskConversationCounts={taskConversationCounts}
           isTaskLive={isTaskLive}
           isTaskAwaitingQuestion={isTaskAwaitingQuestion}
+          isTaskQueued={isTaskQueued}
           taskAgentRuns={taskAgentRuns}
           onTaskClick={handleTaskClick}
           onTaskEdit={handleTaskEdit}
@@ -660,6 +662,7 @@ function BoardView({ className, project }: BoardViewProps) {
           taskConversationCounts={taskConversationCounts}
           isTaskLive={isTaskLive}
           isTaskAwaitingQuestion={isTaskAwaitingQuestion}
+          isTaskQueued={isTaskQueued}
           taskAgentRuns={taskAgentRuns}
           onTaskClick={handleTaskClick}
           onTaskEdit={handleTaskEdit}
@@ -675,6 +678,7 @@ function BoardView({ className, project }: BoardViewProps) {
           taskConversationCounts={taskConversationCounts}
           isTaskLive={isTaskLive}
           isTaskAwaitingQuestion={isTaskAwaitingQuestion}
+          isTaskQueued={isTaskQueued}
           taskAgentRuns={taskAgentRuns}
           onTaskClick={handleTaskClick}
           onTaskEdit={handleTaskEdit}
@@ -690,6 +694,7 @@ function BoardView({ className, project }: BoardViewProps) {
           taskConversationCounts={taskConversationCounts}
           isTaskLive={isTaskLive}
           isTaskAwaitingQuestion={isTaskAwaitingQuestion}
+          isTaskQueued={isTaskQueued}
           taskAgentRuns={taskAgentRuns}
           onTaskClick={handleTaskClick}
           onTaskEdit={handleTaskEdit}

@@ -12,9 +12,10 @@
 // module, so a static import would create a load-time cycle. Keep it
 // dynamic.
 
-import { tasksDb, agentRunsDb, userDb } from '../../database/db.js';
+import { tasksDb, agentRunsDb, userDb, conversationsDb } from '../../database/db.js';
 import { worktreeExists } from '../worktree.js';
 import { notifyClaudeComplete } from '../notifications.js';
+import { localGpuQueue } from '../localGpuQueue.js';
 import type { StreamingContext } from './types.js';
 import type { AgentType } from '@shared/websocket/messages';
 
@@ -97,6 +98,10 @@ export function buildAgentRunCompletionHandler(
 
     if (shouldChain && linkedAgentRun) {
       await handleAgentChaining(taskId, linkedAgentRun.agent_type, ctx);
+    } else {
+      // No auto-chain (yolo, pr, or aborted run) → release the local GPU slot
+      // so the next queued task can start.
+      releaseLocalGpuQueue(taskId, ctx);
     }
 
     // Push notification for any task conversation (manual or agent-run-driven).
@@ -117,6 +122,46 @@ export function buildAgentRunCompletionHandler(
       });
     }
   };
+}
+
+/**
+ * Release the local GPU queue slot for taskId and kick off the next queued task.
+ * No-op when the conversation is not using a local GPU provider or the queue
+ * isn't tracking this task.
+ */
+function releaseLocalGpuQueue(taskId: number, ctx: StreamingContext): void {
+  const provider = conversationsDb.getById(ctx.conversationId)?.provider ?? '';
+  if (!localGpuQueue.isLocalProvider(provider)) return;
+  processNextInQueue(taskId);
+}
+
+/**
+ * Pull the next eligible task from the queue and start it.
+ * Called after a task releases its slot (terminal state, error, or
+ * AskUserQuestion pause). Exported so askUserQuestion.ts can trigger it.
+ */
+export function processNextInQueue(releasingTaskId: number): void {
+  const next = localGpuQueue.release(releasingTaskId, (candidateTaskId) => {
+    const candidate = tasksDb.getById(candidateTaskId);
+    // Skip tasks that are still blocked (waiting for user input).
+    return !candidate?.workflow_blocked;
+  });
+
+  if (!next) return;
+
+  console.log(`[LocalGpuQueue] Starting queued task ${next.taskId} (${next.agentType})`);
+  import('../agentRunner.js')
+    .then(({ startAgentRun }) =>
+      startAgentRun(next.taskId, next.agentType, next.options).catch((err: unknown) => {
+        console.error(`[LocalGpuQueue] Failed to start queued task ${next.taskId}:`, err);
+        // Release slot on error so remaining tasks aren't stuck.
+        processNextInQueue(next.taskId);
+      }),
+    )
+    .catch((err: unknown) => {
+      console.error('[LocalGpuQueue] Failed to import agentRunner:', err);
+      processNextInQueue(next.taskId);
+    });
 }
 
 /**
@@ -141,14 +186,18 @@ async function handleAgentChaining(
     const actorIsNonTechnical = actor?.is_technical === 0;
 
     if (!actorIsNonTechnical) {
+      // Technical user: gate on manual Run. GPU is idle — release slot.
+      releaseLocalGpuQueue(taskId, context);
       return;
     }
     if (task?.workflow_blocked) {
       console.log(`[ConversationAdapter] Task ${taskId} workflow blocked, skipping planification auto-chain`);
+      releaseLocalGpuQueue(taskId, context);
       return;
     }
     if ((task?.workflow_run_count ?? 0) >= MAX_WORKFLOW_RUNS) {
       console.log(`[ConversationAdapter] Task ${taskId} hit max iterations, skipping planification auto-chain`);
+      releaseLocalGpuQueue(taskId, context);
       return;
     }
 
@@ -207,11 +256,13 @@ async function handleAgentChaining(
     }
 
     console.log(`[ConversationAdapter] Task ${taskId} workflow complete, stopping loop`);
+    releaseLocalGpuQueue(taskId, context);
     return;
   }
 
   if (task?.workflow_blocked) {
     console.log(`[ConversationAdapter] Task ${taskId} workflow blocked, stopping loop`);
+    releaseLocalGpuQueue(taskId, context);
     return;
   }
 
@@ -229,6 +280,7 @@ async function handleAgentChaining(
         reason: 'max_iterations',
       });
     }
+    releaseLocalGpuQueue(taskId, context);
     return;
   }
 

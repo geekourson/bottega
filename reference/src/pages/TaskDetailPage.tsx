@@ -49,7 +49,8 @@ function TaskDetailPage() {
     isLoadingProjects,
     isLoadingConversations,
     isLoadingTaskDoc,
-    isLoadingAgentRuns
+    isLoadingAgentRuns,
+    isTaskQueued,
   } = useTaskContext();
 
   const [project, setProject] = useState<ProjectRow | null>(null);
@@ -232,6 +233,12 @@ function TaskDetailPage() {
     // they're absent, so we don't gate on Claude auth up front.
     try {
       const response = await api.agentRuns.create(task.id, agentType);
+
+      if (response.status === 202) {
+        const data = await (response as unknown as Response).json() as { queued: true; position: number };
+        toast.info(`GPU local occupé — agent mis en attente (position ${data.position} dans la queue)`);
+        return;
+      }
 
       if (response.status === 409) {
         const data = await response.json() as { runningAgent?: { agent_type?: string } };
@@ -419,6 +426,7 @@ function TaskDetailPage() {
         onDeleteConversation={deleteConversation}
         onRenameConversation={renameConversation}
         onCIFixConversationCreated={handleCIFixConversationCreated}
+        isQueued={isTaskQueued(task.id)}
         className="h-full"
       />
       <NewConversationModal

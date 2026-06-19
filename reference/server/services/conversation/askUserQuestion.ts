@@ -1,9 +1,11 @@
 import { conversationsDb, tasksDb } from '../../database/db.js';
 import { resolveProjectKey } from '../conversationContentStore.js';
 import { sqliteSessionStore } from '../sqliteSessionStore.js';
+import { localGpuQueue } from '../localGpuQueue.js';
 import { pendingAskUserQuestions } from './sessionState.js';
 import { DEFAULT_PERMISSION_MODE } from './sdkOptions.js';
 import { sendMessage } from './startConversation.js';
+import { processNextInQueue } from './agentRunLifecycle.js';
 import type {
   BroadcastFn,
   BroadcastToTaskSubscribersFn,
@@ -133,6 +135,17 @@ export function buildCanUseTool({
           toolUseId,
           questions,
         });
+      }
+
+      // Release the local GPU slot so the next queued task can start while
+      // we wait for the user's answer. The slot is re-acquired in
+      // resolveAskUserQuestion before the SDK promise is resolved.
+      if (typeof taskId === 'number') {
+        const provider = conversationsDb.getById(conversationId)?.provider ?? '';
+        if (localGpuQueue.isLocalProvider(provider) && localGpuQueue.getActiveTaskId() === taskId) {
+          console.log(`[LocalGpuQueue] Task ${taskId} paused for AskUserQuestion — releasing GPU slot`);
+          processNextInQueue(taskId);
+        }
       }
     });
   };
@@ -292,6 +305,23 @@ export async function resolveAskUserQuestion(
       keyedAnswers[key] = value;
     }
 
+    // If the GPU slot was released when the question was asked (local provider),
+    // we must re-acquire it before resuming — wait our turn in the queue.
+    const conversation = conversationsDb.getById(conversationId);
+    const taskId = conversation?.task_id;
+    const provider = conversation?.provider ?? '';
+    if (typeof taskId === 'number' && localGpuQueue.isLocalProvider(provider)) {
+      if (!localGpuQueue.canRunNow(taskId)) {
+        console.log(`[LocalGpuQueue] Task ${taskId} answered — queuing to wait for GPU`);
+        // waitToResume adds a 'resume' entry to the FIFO queue and blocks
+        // until release() wakes us up (when it's this task's turn again).
+        await localGpuQueue.waitToResume(taskId);
+        console.log(`[LocalGpuQueue] Task ${taskId} resuming — GPU acquired`);
+      } else {
+        localGpuQueue.setActive(taskId);
+      }
+    }
+
     // The SDK turn is about to resume — flip the UI back into the streaming
     // state so the spinner reappears until the next assistant chunk lands.
     // Dual-emit on conversation channel (chat indicator) AND task channel
@@ -302,21 +332,18 @@ export async function resolveAskUserQuestion(
         conversationId,
       });
     }
-    if (options.broadcastToTaskSubscribersFn) {
-      const conversation = conversationsDb.getById(conversationId);
-      if (conversation?.task_id) {
-        // Clear the board's "waiting for answer" flag for this task…
-        options.broadcastToTaskSubscribersFn(conversation.task_id, {
-          type: 'ask-user-question-resolved',
-          conversationId,
-          kind: 'resolved',
-        });
-        // …and re-affirm the live/streaming badge as the turn resumes.
-        options.broadcastToTaskSubscribersFn(conversation.task_id, {
-          type: 'streaming-started',
-          conversationId,
-        });
-      }
+    if (options.broadcastToTaskSubscribersFn && typeof taskId === 'number') {
+      // Clear the board's "waiting for answer" flag for this task…
+      options.broadcastToTaskSubscribersFn(taskId, {
+        type: 'ask-user-question-resolved',
+        conversationId,
+        kind: 'resolved',
+      });
+      // …and re-affirm the live/streaming badge as the turn resumes.
+      options.broadcastToTaskSubscribersFn(taskId, {
+        type: 'streaming-started',
+        conversationId,
+      });
     }
 
     entry.resolve({

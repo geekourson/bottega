@@ -3,6 +3,8 @@ import { tasksDb, agentRunsDb } from '../database/db.js';
 import { hasProjectAccess } from '../services/projectService.js';
 import { startAgentRun, getRunningAgentForTask } from '../services/agentRunner.js';
 import { ProviderCredentialsMissingError } from '../services/credentials/types.js';
+import { localGpuQueue } from '../services/localGpuQueue.js';
+import { loadAgentModelSettings } from '../services/agentModelSettings.js';
 import type { AgentType } from '../../shared/types/db.js';
 import type { ApiError } from '../../shared/api/_common.js';
 import type {
@@ -15,6 +17,7 @@ import type {
   LinkConversationRequest,
   LinkConversationResponse,
   ListAgentRunsResponse,
+  QueuedAgentRunResponse,
   StartPendingAgentsResponse,
 } from '../../shared/api/agent-runs.js';
 import type { ServerToClientMessage } from '../../shared/websocket/messages.js';
@@ -62,10 +65,10 @@ router.post(
   async (
     req: Request<
       { taskId: string },
-      CreateAgentRunResponse | ApiError | AgentRunConflictResponse,
+      CreateAgentRunResponse | QueuedAgentRunResponse | ApiError | AgentRunConflictResponse,
       CreateAgentRunRequest
     >,
-    res: Response<CreateAgentRunResponse | ApiError | AgentRunConflictResponse>,
+    res: Response<CreateAgentRunResponse | QueuedAgentRunResponse | ApiError | AgentRunConflictResponse>,
   ) => {
     try {
       const userId = req.user!.id;
@@ -106,12 +109,32 @@ router.post(
       };
 
       const broadcastToTaskSubscribersFn = req.app.locals.broadcastToTaskSubscribers;
+      const runOptions = { broadcastFn, broadcastToTaskSubscribersFn, userId };
 
-      const { agentRun } = await startAgentRun(taskId, agentType, {
-        broadcastFn,
-        broadcastToTaskSubscribersFn,
-        userId,
-      });
+      // Sequential mode: if the user's provider for this agent type is local
+      // (ollama/local-ai) and another task is already running, queue this run.
+      const userSettings = loadAgentModelSettings(userId);
+      const agentProvider = userSettings[agentType as keyof typeof userSettings]?.provider
+        ?? userSettings.implementation.provider;
+      const sequentialMode = localGpuQueue.isLocalProvider(agentProvider);
+
+      if (sequentialMode && !localGpuQueue.canRunNow(taskId)) {
+        localGpuQueue.enqueue({ taskId, agentType, options: runOptions });
+        const position = localGpuQueue.getQueueLength();
+        broadcastToTaskSubscribersFn?.(taskId, { type: 'task-queued', position });
+        return res.status(202).json({ queued: true, taskId, agentType, position });
+      }
+
+      if (sequentialMode) localGpuQueue.setActive(taskId);
+
+      let agentRun;
+      try {
+        ({ agentRun } = await startAgentRun(taskId, agentType, runOptions));
+      } catch (startError) {
+        // Release queue slot on start failure so queued tasks aren't stuck.
+        if (sequentialMode) localGpuQueue.release(taskId);
+        throw startError;
+      }
 
       res.status(201).json(agentRun);
     } catch (error) {
@@ -174,7 +197,14 @@ router.post(
         .filter((task) => task.status === 'pending');
 
       const started: StartPendingAgentsResponse['started'] = [];
+      const queued: StartPendingAgentsResponse['queued'] = [];
       const skipped: StartPendingAgentsResponse['skipped'] = [];
+
+      // Sequential mode: active when the user's implementation agent uses a local
+      // GPU provider (ollama or local-ai). Tasks are started one at a time; the
+      // rest are queued and started automatically as each task completes or blocks.
+      const userSettings = loadAgentModelSettings(userId);
+      const sequentialMode = localGpuQueue.isLocalProvider(userSettings.implementation.provider);
 
       for (const task of pendingTasks) {
         if (getRunningAgentForTask(task.id)) {
@@ -185,12 +215,20 @@ router.post(
         // First step of the pipeline: planification (or yolo for YOLO tasks).
         // The completion handler then auto-chains the rest.
         const agentType: AgentType = task.yolo_mode ? 'yolo' : 'planification';
+        const runOptions = { broadcastFn, broadcastToTaskSubscribersFn, userId };
+
+        if (sequentialMode && !localGpuQueue.canRunNow(task.id)) {
+          // GPU is busy with another task — queue this one for later.
+          localGpuQueue.enqueue({ taskId: task.id, agentType, options: runOptions });
+          const position = localGpuQueue.getQueueLength();
+          broadcastToTaskSubscribersFn?.(task.id, { type: 'task-queued', position });
+          queued.push({ taskId: task.id, agentType });
+          continue;
+        }
+
         try {
-          const { agentRun } = await startAgentRun(task.id, agentType, {
-            broadcastFn,
-            broadcastToTaskSubscribersFn,
-            userId,
-          });
+          if (sequentialMode) localGpuQueue.setActive(task.id);
+          const { agentRun } = await startAgentRun(task.id, agentType, runOptions);
           started.push({ taskId: task.id, agentType, agentRunId: agentRun.id });
         } catch (error) {
           // A missing-credentials error is global to the user — surface it as a
@@ -198,13 +236,15 @@ router.post(
           if (error instanceof ProviderCredentialsMissingError) {
             throw error;
           }
+          // Release the slot on error so queued tasks can continue.
+          if (sequentialMode) localGpuQueue.release(task.id);
           const msg = error instanceof Error ? error.message : String(error);
           console.error(`Error starting agent for task ${task.id}:`, msg);
           skipped.push({ taskId: task.id, reason: msg });
         }
       }
 
-      res.status(200).json({ started, skipped });
+      res.status(200).json({ started, queued, skipped });
     } catch (error) {
       if (error instanceof ProviderCredentialsMissingError) {
         const providerLabel =
