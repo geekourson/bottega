@@ -647,17 +647,33 @@ export async function getWorktreeDiff(
   });
 
   if (!worktreeFound) {
-    // Fallback: show uncommitted changes in the main repo (non-git project has no diff)
+    // Fallback: show changes in the main repo (committed-ahead-of-remote + uncommitted)
     const isGit = await isGitRepository(repoPath);
     if (!isGit) {
       return { success: false, error: 'worktree_not_found', code: 'WORKTREE_NOT_FOUND' };
     }
     try {
-      const [{ stdout: unstaged }, { stdout: staged }] = await Promise.all([
-        runCommand('git', ['diff'], { cwd: repoPath }).catch(() => ({ stdout: '' })),
-        runCommand('git', ['diff', '--staged'], { cwd: repoPath }).catch(() => ({ stdout: '' })),
-      ]);
-      return { success: true, diff: staged + unstaged };
+      const mainBranch = assertValidBranchName(await getDefaultBranch(repoPath), 'default branch');
+
+      // Try comparing against remote to capture both committed and uncommitted local changes
+      let diff = '';
+      try {
+        const { stdout } = await runCommand(
+          'git',
+          ['diff', `origin/${mainBranch}`],
+          { cwd: repoPath },
+        );
+        diff = stdout;
+      } catch {
+        // No remote or no origin — fall back to staged + unstaged vs HEAD
+        const [{ stdout: staged }, { stdout: unstaged }] = await Promise.all([
+          runCommand('git', ['diff', '--staged'], { cwd: repoPath }).catch(() => ({ stdout: '' })),
+          runCommand('git', ['diff'], { cwd: repoPath }).catch(() => ({ stdout: '' })),
+        ]);
+        diff = staged + unstaged;
+      }
+
+      return { success: true, diff };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { success: false, error: message };

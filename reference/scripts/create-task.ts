@@ -8,6 +8,7 @@
  */
 
 import { projectsDb, tasksDb, initializeDatabase } from '../server/database/db.js';
+import { isGitRepository, createWorktree } from '../server/services/worktree.js';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -44,6 +45,21 @@ async function createTask(
   }
 
   const created = tasksDb.create(projectId, title.trim(), false, null);
+
+  // Create a git worktree for the task if the project is a git repository
+  if (await isGitRepository(project.repo_folder_path)) {
+    const result = await createWorktree(
+      project.repo_folder_path,
+      created.id,
+      title.trim(),
+      project.subproject_path ?? null,
+    );
+    if (result.success) {
+      console.log(`${colors.cyan}Worktree:${colors.reset} ${result.worktreePath} (${result.branch})`);
+    } else {
+      console.warn(`Warning: could not create worktree — ${result.error}`);
+    }
+  }
 
   // Write the description as the task doc if provided
   if (description && description.trim()) {
