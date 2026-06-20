@@ -57,7 +57,12 @@ async function createTask(
     if (result.success) {
       console.log(`${colors.cyan}Worktree:${colors.reset} ${result.worktreePath} (${result.branch})`);
     } else {
-      console.warn(`Warning: could not create worktree — ${result.error}`);
+      // Delete the task so the PO agent can retry cleanly — a task without a
+      // worktree would silently run in the main repo instead.
+      tasksDb.delete(created.id);
+      console.error(`${colors.red}Error:${colors.reset} could not create worktree — ${result.error}`);
+      console.error('Task was not created. Fix the git state and retry.');
+      process.exit(1);
     }
   }
 

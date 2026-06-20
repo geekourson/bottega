@@ -8,6 +8,7 @@ import { promises as fs } from 'fs';
 import { conversationsDb, tasksDb, agentRunsDb } from '../../database/db.js';
 import { resolveResumeModelEffort } from '../agentModelSettings.js';
 import { getWorktreeProjectPath, worktreeExists } from '../worktree.js';
+import { getGitHubToken } from '../githubCredentials.js';
 import { generateConversationTitle } from '../titleGenerator.js';
 import {
   auditClaudeLaunch,
@@ -133,6 +134,12 @@ export async function startConversation(
   } else {
     await ensureFreshClaudeToken(userId);
     sdkEnv = buildClaudeSdkEnv(userId);
+  }
+
+  // Inject GH_TOKEN so agents can use gh CLI without manual auth
+  const ghToken = userId != null ? getGitHubToken(userId, taskWithProject.project_id) : null;
+  if (ghToken) {
+    sdkEnv = { ...sdkEnv, GH_TOKEN: ghToken };
   }
 
   let conversationId = options.conversationId;
@@ -591,6 +598,12 @@ export async function sendMessage(
   } else {
     await ensureFreshClaudeToken(userId);
     resumeEnv = buildClaudeSdkEnv(userId);
+  }
+
+  // Inject GH_TOKEN so agents can use gh CLI without manual auth
+  const resumeGhToken = userId != null ? getGitHubToken(userId, projectId) : null;
+  if (resumeGhToken) {
+    resumeEnv = { ...resumeEnv, GH_TOKEN: resumeGhToken };
   }
 
   // Resume reads transcripts from sqliteSessionStore.load() — no per-user
