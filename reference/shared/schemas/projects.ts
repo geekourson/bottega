@@ -21,3 +21,8 @@ export const UpdateProjectBodySchema = z.object({
   subprojectPath: z.string().nullable().optional(),
 });
 export type UpdateProjectBody = z.infer<typeof UpdateProjectBodySchema>;
+
+export const UpdateProjectReadmeBodySchema = z.object({
+  content: z.string(),
+});
+export type UpdateProjectReadmeBody = z.infer<typeof UpdateProjectReadmeBodySchema>;

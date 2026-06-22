@@ -6,14 +6,20 @@ import {
   updateProject,
   deleteProject,
 } from '../services/projectService.js';
-import { saveConversationUpload } from '../services/documentation.js';
+import {
+  saveConversationUpload,
+  readProjectReadme,
+  writeProjectReadme,
+} from '../services/documentation.js';
 import { upload } from '../middleware/upload.js';
 import type { ApiError } from '../../shared/api/_common.js';
 import type {
   CreateProjectResponse,
   DeleteProjectResponse,
+  GetProjectReadmeResponse,
   GetProjectResponse,
   ListProjectsResponse,
+  UpdateProjectReadmeResponse,
   UpdateProjectResponse,
   UploadProjectFileResponse,
 } from '../../shared/api/projects.js';
@@ -28,6 +34,8 @@ import {
   type CreateProjectBody,
   UpdateProjectBodySchema,
   type UpdateProjectBody,
+  UpdateProjectReadmeBodySchema,
+  type UpdateProjectReadmeBody,
 } from '../../shared/schemas/projects.js';
 import {
   UpdateProjectSettingsBodySchema,
@@ -260,6 +268,54 @@ router.put(
     } catch (error) {
       console.error('Error updating project settings:', error);
       res.status(500).json({ error: 'Failed to update project settings' } satisfies ApiError);
+    }
+  },
+);
+
+// GET /projects/:id/readme
+router.get(
+  '/:id/readme',
+  validateParams(IdParamsSchema),
+  (req: Request, res: Response<GetProjectReadmeResponse | ApiError>) => {
+    try {
+      const userId = req.user!.id;
+      const { id: projectId } = req.validated!.params as IdParams;
+
+      const project = getProject(projectId, userId);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      const content = readProjectReadme(project.repo_folder_path);
+      res.json({ content });
+    } catch (error) {
+      console.error('Error reading project README:', error);
+      res.status(500).json({ error: 'Failed to read project README' });
+    }
+  },
+);
+
+// PUT /projects/:id/readme
+router.put(
+  '/:id/readme',
+  validateParams(IdParamsSchema),
+  validateBody(UpdateProjectReadmeBodySchema),
+  (req: Request, res: Response<UpdateProjectReadmeResponse | ApiError>) => {
+    try {
+      const userId = req.user!.id;
+      const { id: projectId } = req.validated!.params as IdParams;
+      const { content } = req.validated!.body as UpdateProjectReadmeBody;
+
+      const project = getProject(projectId, userId);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      writeProjectReadme(project.repo_folder_path, content);
+      res.json({ content });
+    } catch (error) {
+      console.error('Error writing project README:', error);
+      res.status(500).json({ error: 'Failed to write project README' });
     }
   },
 );

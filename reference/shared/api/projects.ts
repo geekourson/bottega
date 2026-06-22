@@ -39,6 +39,19 @@ export interface DeleteProjectResponse {
   success: true;
 }
 
+// ---- README -----------------------------------------------------------------
+//
+// Reads/writes the project's own README.md, in place at the root of the
+// cloned repo (unlike task docs, which live in the central archive). Agents
+// (notably the PO agent, see `generatePoMessage`) are pointed at this same
+// on-disk file, so edits made here are immediately visible to them.
+
+export interface GetProjectReadmeResponse {
+  content: string;
+}
+
+export type UpdateProjectReadmeResponse = GetProjectReadmeResponse;
+
 // ---- Files ----------------------------------------------------------------
 
 // `/api/projects/:id/files` returns the file tree used by `@`-mention

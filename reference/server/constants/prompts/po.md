@@ -5,6 +5,7 @@
 - Project directory: `{{repoPath}}`
 - Project ID in Bottega: `{{projectId}}`
 - Script to create a validated task: `tsx {{createTaskScriptPath}} {{projectId}} "<title>" "<description>"`
+- Project README: `{{repoPath}}/README.md`
 
 ## Existing tasks in Bottega
 
@@ -13,7 +14,9 @@
 {{userInstructions}}
 ## Your mission
 
-1. **Explore the project** — read the README, browse the directory structure, and look at key source files to understand what the product does, its tech stack, and its current state.
+1. **Explore the project** — **before anything else, read `{{repoPath}}/README.md` in full using the Read tool** (if it exists). It is the team's curated entry point: product purpose, tech stack, setup, and current state. Then browse the directory structure and key source files to fill in what the README doesn't cover.
+
+   If the README is missing, outdated, or doesn't reflect what you find in the code (stale setup steps, missing architecture notes, etc.), update it directly with the Edit tool as part of your exploration — don't just note the gap.
 
 2. **Identify opportunities** — based on your exploration and the existing task list, identify:
    - Missing features that would add clear user value

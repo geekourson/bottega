@@ -46,6 +46,14 @@ function getTmpFolderPath(repoPath: string): string {
   return path.join(repoPath, TMP_FOLDER);
 }
 
+/**
+ * The project's own README.md, read/written in place at the root of the
+ * cloned repo (unlike task docs, which live in the central archive).
+ */
+export function getProjectReadmePath(repoPath: string): string {
+  return path.join(repoPath, 'README.md');
+}
+
 function getMimeType(ext: string): string {
   const mimeTypes: Record<string, string> = {
     '.txt': 'text/plain',
@@ -164,6 +172,32 @@ export function writeTaskDoc(projectId: number, taskId: number, content: string)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Failed to write task documentation: ${message}`);
+    throw error;
+  }
+}
+
+export function readProjectReadme(repoPath: string): string {
+  try {
+    const readmePath = getProjectReadmePath(repoPath);
+
+    if (!fs.existsSync(readmePath)) {
+      return '';
+    }
+
+    return fs.readFileSync(readmePath, 'utf8');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to read project README: ${message}`);
+    throw error;
+  }
+}
+
+export function writeProjectReadme(repoPath: string, content: string): void {
+  try {
+    fs.writeFileSync(getProjectReadmePath(repoPath), content, 'utf8');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to write project README: ${message}`);
     throw error;
   }
 }
@@ -303,10 +337,24 @@ export function getDevServerPort(taskId: number): number {
  * Build a context prompt from task documentation and input files.
  * Task doc + input files live in the central archive (per-user).
  */
-export function buildContextPrompt(projectId: number, taskId: number): string {
+export function buildContextPrompt(projectId: number, taskId: number, repoPath?: string): string {
   const devServerPort = getDevServerPort(taskId);
 
   const sections: string[] = [];
+
+  if (repoPath) {
+    const readmePath = getProjectReadmePath(repoPath);
+    if (fs.existsSync(readmePath)) {
+      sections.push(`## Project README
+
+This project has a README at:
+\`${readmePath}\`
+
+**At the start of this conversation, read this file using the Read tool.** It documents the project's purpose, stack, and how to set up and run it locally — read it before exploring the codebase further.
+
+If your work changes how the project is set up, run, or structured in a way the README no longer reflects, update the README directly with the Edit tool so it stays accurate for the next person (or agent).`);
+    }
+  }
 
   const taskDocPath = getTaskDocPath(projectId, taskId);
   sections.push(`## Task Plan File

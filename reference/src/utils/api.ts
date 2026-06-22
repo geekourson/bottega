@@ -41,6 +41,8 @@ import type {
   SwitchWebServerRequest,
   SwitchWebServerResponse,
   VerifyWebServerResponse,
+  GetProjectReadmeResponse,
+  UpdateProjectReadmeResponse,
 } from '../../shared/api/projects';
 import type {
   ListAllTasksResponse,
@@ -456,6 +458,16 @@ export const api = {
       authenticatedFetch<unknown>(`/api/projects/${projectId}/settings`, {
         method: 'PUT',
         body: JSON.stringify(settings),
+      }),
+    getReadme: (projectId: number): TypedFetch<GetProjectReadmeResponse> =>
+      authenticatedFetch<GetProjectReadmeResponse>(`/api/projects/${projectId}/readme`),
+    updateReadme: (
+      projectId: number,
+      content: string,
+    ): TypedFetch<UpdateProjectReadmeResponse> =>
+      authenticatedFetch<UpdateProjectReadmeResponse>(`/api/projects/${projectId}/readme`, {
+        method: 'PUT',
+        body: JSON.stringify({ content }),
       }),
   },
 

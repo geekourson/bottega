@@ -6,9 +6,10 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Trash2, FolderOpen, AlertTriangle, Archive, Server } from 'lucide-react';
+import { ArrowLeft, Save, Trash2, FolderOpen, AlertTriangle, Archive, Server, FileText } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import MarkdownEditor, { type SaveResult } from '../components/MarkdownEditor';
 import { useTaskContext } from '../contexts/TaskContext';
 import { api } from '../utils/api';
 import type { ProjectRow } from '../../shared/types/db';
@@ -54,6 +55,9 @@ function ProjectEditPageWrapper() {
     systemdServiceName: '',
     appUrl: '',
   });
+
+  const [readmeContent, setReadmeContent] = useState<string | null>(null);
+  const [isLoadingReadme, setIsLoadingReadme] = useState(true);
 
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -116,6 +120,43 @@ function ProjectEditPageWrapper() {
       }
     };
     void loadWebServerConfig();
+  }, [project]);
+
+  useEffect(() => {
+    const loadReadme = async () => {
+      if (!project) return;
+      setIsLoadingReadme(true);
+      try {
+        const response = await api.projects.getReadme(project.id);
+        if (response.ok) {
+          const data = await response.json();
+          setReadmeContent(data.content);
+        }
+      } catch (error) {
+        console.error('Error loading project README:', error);
+      } finally {
+        setIsLoadingReadme(false);
+      }
+    };
+    void loadReadme();
+  }, [project]);
+
+  const handleSaveReadme = useCallback(async (content: string): Promise<SaveResult> => {
+    if (!project) return { success: false, error: 'No project loaded' };
+
+    try {
+      const response = await api.projects.updateReadme(project.id, content);
+      if (!response.ok) {
+        const data = (await response.json()) as unknown as ApiError;
+        return { success: false, error: data.error || 'Failed to save README' };
+      }
+      const data = await response.json();
+      setReadmeContent(data.content);
+      return { success: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save README';
+      return { success: false, error: message };
+    }
   }, [project]);
 
   // Track changes
@@ -348,6 +389,31 @@ function ProjectEditPageWrapper() {
             </label>
             <div className="px-3 py-2 bg-muted/50 border border-border rounded-md text-sm text-muted-foreground font-mono">
               {project.repo_folder_path || 'No folder path'}
+            </div>
+          </div>
+
+          {/* Project README */}
+          <div className="pt-6 border-t border-border">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-muted-foreground" />
+                <h3 className="text-sm font-medium text-foreground">
+                  Project README
+                </h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Consult and edit this project's <code className="text-xs">README.md</code>.
+                Bottega's agents — including the PO agent — read it before starting work,
+                so keep it accurate and use it to document how to set up and run the project.
+              </p>
+              <div className="border border-border rounded-md overflow-hidden">
+                <MarkdownEditor
+                  content={readmeContent}
+                  onSave={handleSaveReadme}
+                  isLoading={isLoadingReadme}
+                  placeholder="No README found at the root of this project. Click Edit to create one."
+                />
+              </div>
             </div>
           </div>
 

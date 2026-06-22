@@ -239,7 +239,7 @@ export async function startAgentRun(
   }
 
   // Build context prompt from task markdown + input files (central archive)
-  const contextPrompt = buildContextPrompt(taskWithProject.project_id, taskId);
+  const contextPrompt = buildContextPrompt(taskWithProject.project_id, taskId, taskWithProject.repo_folder_path);
 
   // (provider, model, effort) loaded above before agentRunsDb.create
   // so the agent run row carries the right provider stamp.
