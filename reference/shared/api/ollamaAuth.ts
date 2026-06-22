@@ -6,6 +6,7 @@ export interface OllamaAuthStatusResponse {
   url: string;
   urlPath: string | null;
   maxOutputTokens: number;
+  contextWindowTokens: number;
   reason?: string;
 }
 
@@ -29,6 +30,15 @@ export interface SetOllamaMaxTokensRequest {
 export interface SetOllamaMaxTokensResponse {
   ok: true;
   maxOutputTokens: number;
+}
+
+export interface SetOllamaContextWindowRequest {
+  contextWindowTokens: number;
+}
+
+export interface SetOllamaContextWindowResponse {
+  ok: true;
+  contextWindowTokens: number;
 }
 
 export interface OllamaModelEntry {

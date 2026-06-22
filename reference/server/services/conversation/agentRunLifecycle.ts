@@ -125,6 +125,41 @@ export function buildAgentRunCompletionHandler(
 }
 
 /**
+ * Pre-mark a still-running agent run as 'failed' the instant a fatal error is
+ * observed mid-turn — either a thrown exception, or an in-band `result`/event
+ * error from a provider that reports failures as data instead of throwing
+ * (OpenCode and, on current SDK versions, Anthropic/Ollama/local-ai all do
+ * this for non-401 API errors; see `runStreamingLoop.ts`'s `resultIsError`).
+ *
+ * Without this, the streaming loop ends "cleanly" (no thrown exception) with
+ * the agent run row still `'running'`. `buildAgentRunCompletionHandler` then
+ * sees `status === 'running'` → marks it `'completed'` → auto-chains to the
+ * next agent, which inherits the same broken conversation (e.g. still over
+ * the context budget) and fails the same way — a runaway loop until
+ * `MAX_WORKFLOW_RUNS` trips, with every step misleadingly shown as
+ * "completed"/validated in the UI. Calling this first makes
+ * `buildAgentRunCompletionHandler`'s "status === 'failed' → no-op, don't
+ * chain" branch fire instead. Safe to call with no taskId or no linked run
+ * (no-op).
+ */
+export function failLinkedAgentRunIfRunning(
+  taskId: number | null | undefined,
+  conversationId: number,
+): void {
+  if (!taskId) return;
+  try {
+    const runs = agentRunsDb.getByTask(taskId);
+    const linked = runs.find((r) => r.conversation_id === conversationId);
+    if (linked && linked.status === 'running') {
+      agentRunsDb.updateStatus(linked.id, 'failed');
+    }
+  } catch (err) {
+    // Best-effort: never throw out of an error-handling path.
+    console.warn('[ConversationAdapter] Failed to pre-mark agent run as failed:', err);
+  }
+}
+
+/**
  * Release the local GPU queue slot for taskId and kick off the next queued task.
  * No-op when the conversation is not using a local GPU provider or the queue
  * isn't tracking this task.

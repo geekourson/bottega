@@ -46,7 +46,7 @@ import {
   handleStreamingComplete,
   composeAsync,
 } from './streamingLifecycle.js';
-import { buildAgentRunCompletionHandler } from './agentRunLifecycle.js';
+import { buildAgentRunCompletionHandler, failLinkedAgentRunIfRunning } from './agentRunLifecycle.js';
 import { resolveSlashCommand } from './slashCommands.js';
 import type { ConversationOptions, StreamingContext } from './types.js';
 import type { BroadcastFn } from '@shared/websocket/messages';
@@ -304,6 +304,13 @@ export async function sendCodexMessage(
           type: 'result',
           ...(unified.usage ? { modelUsage: { codex: unified.usage } } : {}),
         } as never);
+        // Codex reports model/turn failures as data on this event, not by
+        // throwing — pre-mark the agent run 'failed' before composeOnComplete
+        // runs below, otherwise it would see status='running' and silently
+        // mark this 'completed', chaining to the next agent on a failed turn.
+        if (unified.isError) {
+          failLinkedAgentRunIfRunning(taskId, conversationId);
+        }
       }
     }
 
@@ -327,6 +334,7 @@ export async function sendCodexMessage(
         error: errMsg,
       });
     }
+    failLinkedAgentRunIfRunning(taskId, conversationId);
     await composeOnComplete(ctx)();
     throw error;
   }
@@ -539,6 +547,11 @@ export async function startCodexConversation(
               type: 'result',
               ...(unified.usage ? { modelUsage: { codex: unified.usage } } : {}),
             } as never);
+            // See matching comment in sendCodexMessage: Codex reports
+            // failures as data on this event, not by throwing.
+            if (unified.isError) {
+              failLinkedAgentRunIfRunning(taskId, conversationId!);
+            }
           }
         }
 
@@ -583,6 +596,7 @@ export async function startCodexConversation(
             error: errMsg,
           });
         }
+        failLinkedAgentRunIfRunning(taskId, conversationId!);
         await composeOnComplete(ctx)();
       }
     })();

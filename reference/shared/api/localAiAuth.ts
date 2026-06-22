@@ -6,6 +6,7 @@ export interface LocalAiAuthStatusResponse {
   url: string;
   urlPath: string | null;
   maxOutputTokens: number;
+  contextWindowTokens: number;
   reason?: string;
 }
 
@@ -29,6 +30,15 @@ export interface SetLocalAiMaxTokensRequest {
 export interface SetLocalAiMaxTokensResponse {
   ok: true;
   maxOutputTokens: number;
+}
+
+export interface SetLocalAiContextWindowRequest {
+  contextWindowTokens: number;
+}
+
+export interface SetLocalAiContextWindowResponse {
+  ok: true;
+  contextWindowTokens: number;
 }
 
 export interface LocalAiModelEntry {

@@ -32,7 +32,7 @@
 //     reflection.
 
 import { promises as fs } from 'fs';
-import { agentRunsDb, conversationsDb, tasksDb } from '../../database/db.js';
+import { conversationsDb, tasksDb } from '../../database/db.js';
 import { resolveResumeModelEffort } from '../agentModelSettings.js';
 import { getWorktreeProjectPath, worktreeExists } from '../worktree.js';
 import { generateConversationTitle } from '../titleGenerator.js';
@@ -48,7 +48,7 @@ import {
   handleStreamingComplete,
   composeAsync,
 } from './streamingLifecycle.js';
-import { buildAgentRunCompletionHandler } from './agentRunLifecycle.js';
+import { buildAgentRunCompletionHandler, failLinkedAgentRunIfRunning } from './agentRunLifecycle.js';
 import { resolveSlashCommand } from './slashCommands.js';
 import type { ConversationOptions, StreamingContext } from './types.js';
 import type { BroadcastFn } from '@shared/websocket/messages';
@@ -167,37 +167,6 @@ function broadcastUnified(
     type: 'claude-response',
     data: wire as never,
   });
-}
-
-/**
- * Pre-mark a still-running agent run as 'failed' the instant we see a
- * `result` event with `isError: true`. Without this the streaming loop
- * ends normally (no thrown exception — OpenCode reports model errors as
- * SSE events, not HTTP errors), composeOnComplete sees status='running'
- * → marks 'completed' → auto-chains → next agent fails the same way →
- * runaway loop until MAX_WORKFLOW_RUNS=25 trips. Setting the status
- * here makes composeOnComplete's "status === 'failed' → no-op" branch
- * fire instead. Safe to call when there is no taskId or no linked
- * agent run (no-op).
- */
-function failLinkedAgentRunIfRunning(
-  taskId: number | undefined,
-  conversationId: number,
-): void {
-  if (!taskId) return;
-  try {
-    const runs = agentRunsDb.getByTask(taskId);
-    const linked = runs.find((r) => r.conversation_id === conversationId);
-    if (linked && linked.status === 'running') {
-      agentRunsDb.updateStatus(linked.id, 'failed');
-    }
-  } catch (err) {
-    // Best-effort: never throw out of an error-handling path.
-    console.warn(
-      '[ConversationAdapter] failed to pre-mark OpenCode agent run as failed:',
-      err,
-    );
-  }
 }
 
 /**
@@ -344,6 +313,9 @@ export async function sendOpenCodeMessage(
         error: errMsg,
       });
     }
+    // A thrown (not in-band) error reached this point — pre-mark the
+    // agent run 'failed' before composeOnComplete runs below.
+    failLinkedAgentRunIfRunning(taskId ?? undefined, conversationId);
     await composeOnComplete(ctx)();
     throw error;
   }
@@ -593,6 +565,7 @@ export async function startOpenCodeConversation(
             error: errMsg,
           });
         }
+        failLinkedAgentRunIfRunning(taskId, conversationId!);
         await composeOnComplete(ctx)();
       }
     })();

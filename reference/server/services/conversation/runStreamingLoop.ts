@@ -102,12 +102,25 @@ export async function runStreamingLoop({
   broadcastClaudeStatus = false,
   onResult,
   ollamaProjectKey,
-}: RunStreamingLoopParams): Promise<{ claudeSessionId: string | null; authError: boolean }> {
+}: RunStreamingLoopParams): Promise<{
+  claudeSessionId: string | null;
+  authError: boolean;
+  resultIsError: boolean;
+}> {
   let claudeSessionId: string | null = initialSessionId;
   let firstSessionIdSeen = initialSessionId !== null;
   let sessionCreatedBroadcast = false;
   let resultObserved = false;
   let authError = false;
+  // True when the SDK's final `result` message for this turn reports
+  // `is_error: true` for a reason other than the in-band 401 (handled
+  // separately above via `authError`/the retry path). On current SDK
+  // versions, non-auth API errors (e.g. a 400 "exceeds the available
+  // context size") are delivered as data on this message rather than
+  // thrown — the loop would otherwise end "cleanly" and the caller would
+  // treat the turn as a success. See `failLinkedAgentRunIfRunning` in
+  // `agentRunLifecycle.ts` for how the caller uses this.
+  let resultIsError = false;
   // Messages accumulated before the first session_id arrives (Ollama only).
   const ollamaPending: SDKIteratorMessage[] = [];
 
@@ -142,6 +155,10 @@ export async function runStreamingLoop({
           onResult?.();
         }
         continue;
+      }
+
+      if (sdkMessage.type === 'result' && sdkMessage.is_error === true) {
+        resultIsError = true;
       }
 
       if (sdkMessage.type === 'assistant') {
@@ -247,10 +264,10 @@ export async function runStreamingLoop({
       console.log(
         `[ConversationAdapter] iterator threw after result for session ${claudeSessionId} — treating as clean turn end (${(error as Error).message ?? error})`,
       );
-      return { claudeSessionId, authError };
+      return { claudeSessionId, authError, resultIsError };
     }
     throw error;
   }
 
-  return { claudeSessionId, authError };
+  return { claudeSessionId, authError, resultIsError };
 }

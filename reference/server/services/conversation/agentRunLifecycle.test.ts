@@ -14,6 +14,9 @@ vi.mock('../../database/db.js', () => ({
   },
   userDb: {
     getUserById: vi.fn()
+  },
+  conversationsDb: {
+    getById: vi.fn().mockReturnValue(undefined)
   }
 }));
 
@@ -32,6 +35,7 @@ vi.mock('../agentRunner.js', () => ({
 
 import {
   buildAgentRunCompletionHandler,
+  failLinkedAgentRunIfRunning,
   MAX_WORKFLOW_RUNS
 } from './agentRunLifecycle.js';
 import { tasksDb, agentRunsDb, userDb } from '../../database/db.js';
@@ -355,5 +359,63 @@ describe('buildAgentRunCompletionHandler', () => {
     await buildAgentRunCompletionHandler(c)();
 
     expect(agentRunsDb.updateStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('failLinkedAgentRunIfRunning', () => {
+  it('is a no-op when taskId is null or undefined', () => {
+    failLinkedAgentRunIfRunning(undefined, 100);
+    failLinkedAgentRunIfRunning(null, 100);
+
+    expect(agentRunsDb.getByTask).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when there is no linked agent run', () => {
+    vi.mocked(agentRunsDb.getByTask).mockReturnValue([]);
+
+    failLinkedAgentRunIfRunning(7, 100);
+
+    expect(agentRunsDb.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when the linked run is not "running"', () => {
+    vi.mocked(agentRunsDb.getByTask).mockReturnValue([
+      { id: 9, conversation_id: 100, agent_type: 'implementation', status: 'completed' }
+    ] as never);
+
+    failLinkedAgentRunIfRunning(7, 100);
+
+    expect(agentRunsDb.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('marks a still-running linked run as failed', () => {
+    vi.mocked(agentRunsDb.getByTask).mockReturnValue([
+      { id: 9, conversation_id: 100, agent_type: 'implementation', status: 'running' }
+    ] as never);
+
+    failLinkedAgentRunIfRunning(7, 100);
+
+    expect(agentRunsDb.updateStatus).toHaveBeenCalledWith(9, 'failed');
+  });
+
+  it('makes buildAgentRunCompletionHandler skip chaining afterwards', async () => {
+    // Simulates the real call order: an in-band/thrown error pre-marks the
+    // run 'failed' before composeOnComplete (which wraps this handler) runs.
+    vi.mocked(agentRunsDb.getByTask).mockReturnValue([
+      { id: 9, conversation_id: 100, agent_type: 'implementation', status: 'running' }
+    ] as never);
+    failLinkedAgentRunIfRunning(7, 100);
+
+    vi.mocked(agentRunsDb.getByTask).mockReturnValue([
+      { id: 9, conversation_id: 100, agent_type: 'implementation', status: 'failed' }
+    ] as never);
+    vi.mocked(tasksDb.getById).mockReturnValue({ id: 7, workflow_run_count: 0 } as never);
+
+    await buildAgentRunCompletionHandler(ctx())();
+
+    expect(agentRunsDb.updateStatus).toHaveBeenCalledTimes(1);
+    expect(agentRunsDb.updateStatus).toHaveBeenCalledWith(9, 'failed');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(startAgentRun).not.toHaveBeenCalled();
   });
 });

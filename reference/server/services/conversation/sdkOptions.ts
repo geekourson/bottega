@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
-import { sqliteSessionStore } from '../sqliteSessionStore.js';
+import { sqliteSessionStore, type SqliteSessionStore } from '../sqliteSessionStore.js';
 import type { PermissionMode } from '@shared/websocket/messages';
 
 // bypassPermissions allows Claude to write files without prompting.
@@ -63,6 +63,13 @@ export interface MapOptionsInput {
   /** Reasoning effort, or null when none was chosen. */
   effort?: string | null | undefined;
   disallowedTools?: string[] | undefined;
+  /**
+   * Overrides the default sqliteSessionStore singleton. Used by ollama/local-ai
+   * conversations to wrap it with createTruncatingSessionStore() — those
+   * providers' real context windows are far smaller than the SDK's native
+   * auto-compact floor (100k tokens), so we truncate resumed history ourselves.
+   */
+  sessionStore?: SqliteSessionStore | undefined;
 }
 
 export interface SDKOptions {
@@ -151,7 +158,7 @@ export function mapOptionsToSDK(options: MapOptionsInput): SDKOptions {
   // for every conversation; our app reads transcripts exclusively from SQLite.
   // The SDK still writes its own JSONL copies under CLAUDE_CONFIG_DIR, but
   // those files are private to the SDK and never read by this codebase.
-  sdkOptions.sessionStore = sqliteSessionStore;
+  sdkOptions.sessionStore = options.sessionStore ?? sqliteSessionStore;
 
   // Without this, the SDK's transcript-mirror batcher buffers up to 500 entries
   // / 1 MiB before draining to our store (no time-based flush), so mid-turn

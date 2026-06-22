@@ -159,6 +159,18 @@ export class SqliteSessionStore {
     return rows.map((row) => JSON.parse(row.entry_json) as TranscriptEntry);
   }
 
+  /**
+   * Like {@link load}, but drops the oldest whole turns once the estimated
+   * token count exceeds `maxContextTokens`. Only applied to the main
+   * transcript (subpath '') — see {@link truncateToFitContext} for the
+   * turn-boundary logic that keeps tool_use/tool_result pairs intact.
+   */
+  async loadTruncated(key: SessionKey, maxContextTokens: number): Promise<TranscriptEntry[] | null> {
+    const entries = await this.load(key);
+    if (!entries || normalizeSubpath(key.subpath) !== '') return entries;
+    return truncateToFitContext(entries, maxContextTokens);
+  }
+
   async delete(key: SessionKey): Promise<void> {
     const projectKey = key.projectKey;
     const sessionId = key.sessionId;
@@ -249,3 +261,90 @@ export class SqliteSessionStore {
 }
 
 export const sqliteSessionStore = new SqliteSessionStore();
+
+// ────────────────────────────────────────────────────────────────────────────
+// Context-window truncation for small-context local models (Ollama, local-ai)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// The Claude Agent SDK's native auto-compact (`Options.settings.autoCompactWindow`)
+// has a hard `min(100_000)` floor in its zod schema — useless against a local
+// model's real context window (often 4k-32k). Anthropic's own context window is
+// large enough that this never bites in practice; a local server's is not. So
+// for ollama/local-ai we truncate the resumed history ourselves, at the
+// sessionStore boundary, before it ever reaches the subprocess.
+
+/**
+ * True when `entry` is a real human/queued prompt that starts a new turn —
+ * as opposed to a synthetic `type: 'user'` entry carrying a tool_result
+ * (Claude transcripts represent both with the same `type`). A tool_result
+ * entry's `message.content` is an array of content blocks; a real prompt's
+ * is a plain string.
+ */
+function isRealUserTurnStart(entry: TranscriptEntry): boolean {
+  if (entry.type !== 'user') return false;
+  const message = entry.message as { content?: unknown } | undefined;
+  return typeof message?.content === 'string';
+}
+
+/** Cheap token estimate (~4 chars/token) — good enough for a budget, not billing. */
+function estimateEntryTokens(entry: TranscriptEntry): number {
+  return Math.ceil(JSON.stringify(entry).length / 4);
+}
+
+/**
+ * Drop the oldest whole turns from `entries` until the estimated token count
+ * fits `maxContextTokens`. A "turn" runs from one real user prompt up to (not
+ * including) the next, so every tool_use is always kept alongside its
+ * tool_result — never split mid-turn. Entries before the first real prompt
+ * (session init/system bookkeeping) form turn 0 and age out like any other.
+ *
+ * Always keeps at least the most recent turn, even if it alone exceeds the
+ * budget — an empty resume is worse than one oversized turn, and that turn
+ * still hits the same hard limit a non-truncated resume would have.
+ */
+export function truncateToFitContext(
+  entries: TranscriptEntry[],
+  maxContextTokens: number,
+): TranscriptEntry[] {
+  if (entries.length === 0) return entries;
+
+  const turnStarts: number[] = [0];
+  entries.forEach((entry, i) => {
+    if (i > 0 && isRealUserTurnStart(entry)) turnStarts.push(i);
+  });
+
+  const turns: TranscriptEntry[][] = turnStarts.map((start, i) =>
+    entries.slice(start, turnStarts[i + 1] ?? entries.length),
+  );
+
+  const kept: TranscriptEntry[][] = [];
+  let budget = maxContextTokens;
+  for (const turn of [...turns].reverse()) {
+    const turnTokens = turn.reduce((sum, e) => sum + estimateEntryTokens(e), 0);
+    if (kept.length > 0 && turnTokens > budget) break;
+    kept.unshift(turn);
+    budget -= turnTokens;
+  }
+
+  return kept.flat();
+}
+
+/**
+ * Wrap `store` so `load()` returns a truncated transcript for the main
+ * transcript only (subagent subpaths are passed through verbatim — they
+ * don't carry the multi-turn user-prompt boundaries this relies on, and in
+ * practice the main transcript is what grows unbounded).
+ */
+export function createTruncatingSessionStore(
+  store: SqliteSessionStore,
+  maxContextTokens: number,
+): SqliteSessionStore {
+  return new Proxy(store, {
+    get(target, prop, receiver) {
+      if (prop === 'load') {
+        return (key: SessionKey) => target.loadTruncated(key, maxContextTokens);
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}

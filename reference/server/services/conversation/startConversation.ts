@@ -34,7 +34,7 @@ import {
   handleStreamingComplete,
   composeAsync,
 } from './streamingLifecycle.js';
-import { buildAgentRunCompletionHandler } from './agentRunLifecycle.js';
+import { buildAgentRunCompletionHandler, failLinkedAgentRunIfRunning } from './agentRunLifecycle.js';
 import { runStreamingLoop } from './runStreamingLoop.js';
 import {
   isClaudeAuthError,
@@ -49,10 +49,11 @@ import {
   startOpenCodeConversation,
   sendOpenCodeMessage,
 } from './startOpenCodeConversation.js';
-import { buildOllamaSdkEnv } from '../ollamaCredentials.js';
+import { buildOllamaSdkEnv, readOllamaContextWindow } from '../ollamaCredentials.js';
 import { parseOllamaModel } from '../providers/ollama/index.js';
-import { buildLocalAiSdkEnv } from '../localAiCredentials.js';
+import { buildLocalAiSdkEnv, readLocalAiContextWindow } from '../localAiCredentials.js';
 import { parseLocalAiModel } from '../providers/local-ai/index.js';
+import { sqliteSessionStore, createTruncatingSessionStore } from '../sqliteSessionStore.js';
 import type { ConversationOptions, StreamingContext } from './types.js';
 
 /**
@@ -314,7 +315,7 @@ export async function startConversation(
 
     void (async () => {
       try {
-        const { authError } = await runStreamingLoop({
+        const { authError, resultIsError } = await runStreamingLoop({
           queryInstance: queryInstance as never,
           conversationId: conversationId,
           broadcastFn,
@@ -343,6 +344,16 @@ export async function startConversation(
           throw new Error(
             'Claude Code returned an error result: Failed to authenticate. API Error: 401 Invalid authentication credentials',
           );
+        }
+
+        // Non-auth in-band error (e.g. a 400 "exceeds the available context
+        // size" from Ollama/local-ai): the loop ended without throwing, so
+        // pre-mark the linked agent run 'failed' before composeOnComplete
+        // runs below — otherwise it would see status='running' and silently
+        // mark this 'completed', chaining to the next agent on a turn that
+        // never actually produced anything.
+        if (resultIsError) {
+          failLinkedAgentRunIfRunning(taskId, conversationId);
         }
 
         // If the subprocess exited without ever emitting a session_id,
@@ -481,10 +492,13 @@ export async function startConversation(
           });
         }
 
-        // Run the same completion handler the success path does — the agent
-        // run row was either already marked 'failed' by abortSession (no
-        // chain) or is still 'running' and will be marked 'completed' here
-        // (chain continues, next agent picks up the recovery).
+        // A genuine, unrecovered streaming error reached this point (not
+        // handled by the auth-retry or token-limit-retry paths above, which
+        // both `return` before here). Pre-mark the agent run 'failed' so
+        // composeOnComplete's "status === 'failed' → no-op, don't chain"
+        // branch fires instead of silently marking it 'completed' and
+        // chaining to the next agent on a broken turn.
+        failLinkedAgentRunIfRunning(taskId, conversationId);
         await composeOnComplete(ctx)();
       } finally {
         rejectPendingAskUserQuestion(conversationId, 'streaming ended');
@@ -606,6 +620,17 @@ export async function sendMessage(
     resumeEnv = { ...resumeEnv, GH_TOKEN: resumeGhToken };
   }
 
+  // Local models' real context windows are far smaller than the SDK's native
+  // auto-compact floor (100k tokens, unusable below that). Truncate the
+  // resumed history ourselves so it stays under the user-configured budget
+  // instead of hitting a 400 "exceeds available context size" from the server.
+  let resumeSessionStore = sqliteSessionStore;
+  if (isOllamaResume) {
+    resumeSessionStore = createTruncatingSessionStore(sqliteSessionStore, readOllamaContextWindow(userId));
+  } else if (isLocalAiResume) {
+    resumeSessionStore = createTruncatingSessionStore(sqliteSessionStore, readLocalAiContextWindow(userId));
+  }
+
   // Resume reads transcripts from sqliteSessionStore.load() — no per-user
   // CLAUDE_CONFIG_DIR materialization required.
   const sdkOptions = mapOptionsToSDK({
@@ -621,6 +646,7 @@ export async function sendMessage(
     }),
     model: resumeSdkModel,
     effort: resumeEffort,
+    sessionStore: resumeSessionStore,
   });
 
   // Local inference servers don't support extended thinking or partial-message
@@ -726,7 +752,7 @@ export async function sendMessage(
   const contextUsageTracker = createContextUsageTracker({ conversationId, broadcastFn });
 
   try {
-    const { authError } = await runStreamingLoop({
+    const { authError, resultIsError } = await runStreamingLoop({
       queryInstance: queryInstance as never,
       conversationId,
       broadcastFn,
@@ -747,6 +773,12 @@ export async function sendMessage(
       throw new Error(
         'Claude Code returned an error result: Failed to authenticate. API Error: 401 Invalid authentication credentials',
       );
+    }
+
+    // Non-auth in-band error (e.g. context-overflow on resume — the exact
+    // case this is fixing for): see matching comment in startConversation.
+    if (resultIsError) {
+      failLinkedAgentRunIfRunning(taskId, conversationId);
     }
 
     activeSessions.delete(claudeSessionId);
@@ -810,9 +842,11 @@ export async function sendMessage(
       });
     }
 
-    // Let the completion handler decide whether to chain (based on the
-    // agent_run row's status: 'failed' → no-op, 'running' → mark
-    // 'completed' and chain).
+    // A genuine, unrecovered streaming error reached this point (the
+    // auth-retry and token-limit-retry paths above both `return` before
+    // here). Pre-mark the agent run 'failed' so the completion handler
+    // below doesn't silently mark it 'completed' and chain on a broken turn.
+    failLinkedAgentRunIfRunning(taskId, conversationId);
     await composeOnComplete(ctx)();
 
     throw error;

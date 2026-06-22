@@ -17,6 +17,10 @@ import os from 'os';
 
 export const DEFAULT_LOCAL_AI_URL = 'http://localhost:8080';
 const DEFAULT_MAX_OUTPUT_TOKENS = 64000;
+// Conservative default — most llama.cpp/LM Studio setups run with a small
+// configured context. Raise it in Settings → Providers → Local AI to match
+// whatever the server is actually configured with.
+const DEFAULT_CONTEXT_WINDOW_TOKENS = 8192;
 
 export class LocalAiCredentialsError extends Error {
   constructor(message: string) {
@@ -36,6 +40,10 @@ function resolveUrlFilePath(userId: number | string | undefined): string {
 
 function resolveMaxTokensFilePath(userId: number | string | undefined): string {
   return path.join(resolveUserDir(userId), 'local-ai-max-tokens');
+}
+
+function resolveContextWindowFilePath(userId: number | string | undefined): string {
+  return path.join(resolveUserDir(userId), 'local-ai-context-window');
 }
 
 export function resolveLocalAiUrlPath(userId: number | string | undefined): string {
@@ -85,6 +93,26 @@ export async function writeLocalAiMaxTokens(
   await fs.writeFile(filePath, String(tokens), { mode: 0o600 });
 }
 
+export function readLocalAiContextWindow(userId: number | string | undefined): number {
+  const filePath = resolveContextWindowFilePath(userId);
+  try {
+    const raw = readFileSync(filePath, 'utf8').trim();
+    const parsed = parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CONTEXT_WINDOW_TOKENS;
+  } catch {
+    return DEFAULT_CONTEXT_WINDOW_TOKENS;
+  }
+}
+
+export async function writeLocalAiContextWindow(
+  userId: number | string | undefined,
+  tokens: number,
+): Promise<void> {
+  const filePath = resolveContextWindowFilePath(userId);
+  await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  await fs.writeFile(filePath, String(tokens), { mode: 0o600 });
+}
+
 export async function clearLocalAiUrl(
   userId: number | string | undefined,
 ): Promise<boolean> {
@@ -103,6 +131,7 @@ export interface LocalAiAuthStatus {
   urlPath: string;
   url: string;
   maxOutputTokens: number;
+  contextWindowTokens: number;
   reason?: string;
 }
 
@@ -111,6 +140,7 @@ export async function getLocalAiAuthStatus(
 ): Promise<LocalAiAuthStatus> {
   const { url, urlPath } = readLocalAiUrl(userId);
   const maxOutputTokens = readLocalAiMaxTokens(userId);
+  const contextWindowTokens = readLocalAiContextWindow(userId);
   try {
     // GET /v1/models is available on all major local servers and doubles as a
     // health check — if it responds with a 2xx we consider the server live.
@@ -118,7 +148,7 @@ export async function getLocalAiAuthStatus(
       signal: AbortSignal.timeout(3000),
     });
     if (res.ok) {
-      return { authenticated: true, status: 'authenticated', urlPath, url, maxOutputTokens };
+      return { authenticated: true, status: 'authenticated', urlPath, url, maxOutputTokens, contextWindowTokens };
     }
     return {
       authenticated: false,
@@ -126,6 +156,7 @@ export async function getLocalAiAuthStatus(
       urlPath,
       url,
       maxOutputTokens,
+      contextWindowTokens,
       reason: `Server returned HTTP ${res.status}`,
     };
   } catch (err) {
@@ -136,6 +167,7 @@ export async function getLocalAiAuthStatus(
       urlPath,
       url,
       maxOutputTokens,
+      contextWindowTokens,
       reason: `Cannot reach server at ${url}: ${message}`,
     };
   }

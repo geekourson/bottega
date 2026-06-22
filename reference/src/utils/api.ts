@@ -143,6 +143,7 @@ import type {
   OllamaModelsResponse,
   SetOllamaUrlResponse,
   SetOllamaMaxTokensResponse,
+  SetOllamaContextWindowResponse,
 } from '../../shared/api/ollamaAuth';
 import type {
   LocalAiAuthStatusResponse,
@@ -150,6 +151,7 @@ import type {
   SetLocalAiUrlResponse,
   ClearLocalAiUrlResponse,
   SetLocalAiMaxTokensResponse,
+  SetLocalAiContextWindowResponse,
 } from '../../shared/api/localAiAuth';
 import type {
   ConnectedProvidersResponse,
@@ -337,6 +339,11 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify({ maxOutputTokens }),
       }),
+    setContextWindow: (contextWindowTokens: number): TypedFetch<SetOllamaContextWindowResponse> =>
+      authenticatedFetch<SetOllamaContextWindowResponse>('/api/ollama-auth/context-window', {
+        method: 'PUT',
+        body: JSON.stringify({ contextWindowTokens }),
+      }),
     models: (): TypedFetch<OllamaModelsResponse> =>
       authenticatedFetch<OllamaModelsResponse>('/api/ollama-auth/models'),
   },
@@ -357,6 +364,11 @@ export const api = {
       authenticatedFetch<SetLocalAiMaxTokensResponse>('/api/local-ai-auth/max-tokens', {
         method: 'PUT',
         body: JSON.stringify({ maxOutputTokens }),
+      }),
+    setContextWindow: (contextWindowTokens: number): TypedFetch<SetLocalAiContextWindowResponse> =>
+      authenticatedFetch<SetLocalAiContextWindowResponse>('/api/local-ai-auth/context-window', {
+        method: 'PUT',
+        body: JSON.stringify({ contextWindowTokens }),
       }),
     models: (): TypedFetch<LocalAiModelsResponse> =>
       authenticatedFetch<LocalAiModelsResponse>('/api/local-ai-auth/models'),

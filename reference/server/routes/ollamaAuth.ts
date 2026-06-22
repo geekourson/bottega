@@ -15,6 +15,7 @@ import {
   OllamaCredentialsError,
   writeOllamaUrl,
   writeOllamaMaxTokens,
+  writeOllamaContextWindow,
 } from '../services/ollamaCredentials.js';
 import { seedAgentSettingsAfterConnect } from '../services/agentModelSettings.js';
 import type {
@@ -23,6 +24,7 @@ import type {
   OllamaModelsResponse,
   SetOllamaUrlResponse,
   SetOllamaMaxTokensResponse,
+  SetOllamaContextWindowResponse,
 } from '../../shared/api/ollamaAuth.js';
 import type { ApiError } from '../../shared/api/_common.js';
 
@@ -59,6 +61,7 @@ router.get(
         url: status.url,
         urlPath: status.urlPath,
         maxOutputTokens: status.maxOutputTokens,
+        contextWindowTokens: status.contextWindowTokens,
         ...(status.reason !== undefined ? { reason: status.reason } : {}),
       });
     } catch (error) {
@@ -116,6 +119,27 @@ router.put(
     try {
       await writeOllamaMaxTokens(req.user!.id, tokens);
       res.status(201).json({ ok: true, maxOutputTokens: tokens });
+    } catch (error) {
+      authErrorResponse(res as Response<OllamaAuthErrorBody | ApiError>, error);
+    }
+  },
+);
+
+router.put(
+  '/context-window',
+  async (req: Request, res: Response<SetOllamaContextWindowResponse | OllamaAuthErrorBody>) => {
+    const body = req.body as { contextWindowTokens?: unknown };
+    const raw = Number(body.contextWindowTokens);
+    if (!Number.isFinite(raw) || raw < 1000) {
+      return res.status(400).json({
+        error: 'contextWindowTokens must be a number ≥ 1000',
+        code: 'OLLAMA_AUTH_INVALID_PAYLOAD',
+      });
+    }
+    const tokens = Math.round(raw);
+    try {
+      await writeOllamaContextWindow(req.user!.id, tokens);
+      res.status(201).json({ ok: true, contextWindowTokens: tokens });
     } catch (error) {
       authErrorResponse(res as Response<OllamaAuthErrorBody | ApiError>, error);
     }

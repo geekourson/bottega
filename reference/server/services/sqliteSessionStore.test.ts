@@ -1,6 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '../test/db-helper.js';
-import { SqliteSessionStore } from './sqliteSessionStore.js';
+import {
+  SqliteSessionStore,
+  truncateToFitContext,
+  createTruncatingSessionStore,
+} from './sqliteSessionStore.js';
+
+// Mirrors the production estimate (chars/4) so tests can pick thresholds
+// that land exactly on a turn boundary instead of guessing.
+function approxTokens(entry: unknown): number {
+  return Math.ceil(JSON.stringify(entry).length / 4);
+}
 
 describe('SqliteSessionStore', () => {
   let testDb: TestDatabase;
@@ -211,5 +221,169 @@ describe('SqliteSessionStore', () => {
 
     const loaded = await store.load({ projectKey: 'p1', sessionId: 's1' });
     expect(loaded.map((e: { uuid: string }) => e.uuid)).toEqual(['a', 'b']);
+  });
+});
+
+describe('truncateToFitContext', () => {
+  function userTurnStart(uuid: string, content: string) {
+    return { type: 'user', uuid, message: { role: 'user', content } };
+  }
+
+  function assistantText(uuid: string, content: string) {
+    return { type: 'assistant', uuid, message: { role: 'assistant', content } };
+  }
+
+  function toolUse(uuid: string, id: string) {
+    return {
+      type: 'assistant',
+      uuid,
+      message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: {} }] },
+    };
+  }
+
+  // A tool_result is itself a `type: 'user'` entry, but its content is an
+  // array of blocks, not a string — this is what distinguishes it from a
+  // real turn-starting prompt.
+  function toolResult(uuid: string, id: string) {
+    return {
+      type: 'user',
+      uuid,
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] },
+    };
+  }
+
+  it('returns entries unchanged when everything fits the budget', () => {
+    const entries = [userTurnStart('a', 'hi'), assistantText('b', 'hello')];
+    const result = truncateToFitContext(entries, 100_000);
+    expect(result).toEqual(entries);
+  });
+
+  it('returns [] unchanged for empty input', () => {
+    expect(truncateToFitContext([], 100)).toEqual([]);
+  });
+
+  it('drops the oldest whole turn while keeping the most recent turn intact', () => {
+    const turn1 = [userTurnStart('a', 'x'.repeat(2000)), assistantText('b', 'y'.repeat(2000))];
+    const turn2 = [userTurnStart('c', 'recent question'), assistantText('d', 'recent answer')];
+    const entries = [...turn1, ...turn2];
+
+    const turn2Tokens = turn2.reduce((sum, e) => sum + approxTokens(e), 0);
+    // Budget fits turn2 alone but not turn1 + turn2.
+    const budget = turn2Tokens + 10;
+
+    const result = truncateToFitContext(entries, budget);
+    expect(result.map((e: { uuid?: string }) => e.uuid)).toEqual(['c', 'd']);
+  });
+
+  it('never splits a turn — a tool_use stays paired with its tool_result even under tight budget', () => {
+    const oldTurn = [userTurnStart('a', 'old')];
+    const recentTurn = [
+      userTurnStart('c', 'do a thing'),
+      toolUse('d', 'tool-1'),
+      toolResult('e', 'tool-1'),
+      assistantText('f', 'done'),
+    ];
+    const entries = [...oldTurn, ...recentTurn];
+
+    const recentTurnTokens = recentTurn.reduce((sum, e) => sum + approxTokens(e), 0);
+    const budget = recentTurnTokens + 5;
+
+    const result = truncateToFitContext(entries, budget);
+    expect(result.map((e: { uuid?: string }) => e.uuid)).toEqual(['c', 'd', 'e', 'f']);
+  });
+
+  it('treats a type:"user" tool_result entry as a continuation, not a new turn boundary', () => {
+    // If tool_result were mistaken for a turn start, this single logical
+    // turn would split into two and 'c'..'f' could be dropped independently
+    // from 'e'/'f' — breaking the tool_use/tool_result pairing.
+    const entries = [
+      userTurnStart('a', 'do a thing'),
+      toolUse('b', 'tool-1'),
+      toolResult('c', 'tool-1'),
+      assistantText('d', 'done'),
+    ];
+
+    const result = truncateToFitContext(entries, 1);
+    expect(result.map((e: { uuid?: string }) => e.uuid)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('always keeps at least the most recent turn, even if it alone exceeds the budget', () => {
+    const entries = [
+      userTurnStart('a', 'old'),
+      userTurnStart('b', 'x'.repeat(5000)),
+      assistantText('c', 'y'.repeat(5000)),
+    ];
+
+    const result = truncateToFitContext(entries, 1);
+    expect(result.map((e: { uuid?: string }) => e.uuid)).toEqual(['b', 'c']);
+  });
+
+  it('entries before the first real user prompt form turn 0 and age out like any other turn', () => {
+    const leading = [{ type: 'system', uuid: 'sys', message: 'init' }];
+    const turn1 = [userTurnStart('a', 'first'), assistantText('b', 'reply')];
+    const turn2 = [userTurnStart('c', 'second'), assistantText('d', 'reply2')];
+    const entries = [...leading, ...turn1, ...turn2];
+
+    const turn2Tokens = turn2.reduce((sum, e) => sum + approxTokens(e), 0);
+    const result = truncateToFitContext(entries, turn2Tokens + 5);
+
+    expect(result.map((e: { uuid?: string }) => e.uuid)).toEqual(['c', 'd']);
+  });
+});
+
+describe('createTruncatingSessionStore', () => {
+  let testDb: TestDatabase;
+  let store: SqliteSessionStore;
+
+  beforeEach(() => {
+    testDb = createTestDatabase();
+    store = new SqliteSessionStore(testDb.db);
+  });
+
+  afterEach(() => {
+    testDb.close();
+  });
+
+  it('truncates the main transcript (subpath "") on load()', async () => {
+    const key = { projectKey: 'p1', sessionId: 's1' };
+    const oldTurn = [
+      { type: 'user', uuid: 'a', message: { role: 'user', content: 'x'.repeat(5000) } },
+      { type: 'assistant', uuid: 'b', message: { role: 'assistant', content: 'y'.repeat(5000) } },
+    ];
+    const recentTurn = [
+      { type: 'user', uuid: 'c', message: { role: 'user', content: 'recent' } },
+      { type: 'assistant', uuid: 'd', message: { role: 'assistant', content: 'reply' } },
+    ];
+    await store.append(key, [...oldTurn, ...recentTurn]);
+
+    const wrapped = createTruncatingSessionStore(store, 100);
+    const loaded = await wrapped.load(key);
+
+    expect(loaded?.map((e: { uuid?: string }) => e.uuid)).toEqual(['c', 'd']);
+  });
+
+  it('leaves subagent subpaths untouched (no turn boundaries to truncate against)', async () => {
+    const key = { projectKey: 'p1', sessionId: 's1', subpath: 'subagents/agent-1.jsonl' };
+    const entries = [
+      { type: 'user', uuid: 'a', message: { role: 'user', content: 'x'.repeat(5000) } },
+      { type: 'assistant', uuid: 'b', message: { role: 'assistant', content: 'y'.repeat(5000) } },
+    ];
+    await store.append(key, entries);
+
+    const wrapped = createTruncatingSessionStore(store, 1);
+    const loaded = await wrapped.load(key);
+
+    expect(loaded?.map((e: { uuid?: string }) => e.uuid)).toEqual(['a', 'b']);
+  });
+
+  it('does not affect append()/delete() — only load() is intercepted', async () => {
+    const key = { projectKey: 'p1', sessionId: 's1' };
+    const wrapped = createTruncatingSessionStore(store, 1);
+
+    await wrapped.append(key, [{ type: 'user', uuid: 'a', message: { role: 'user', content: 'hi' } }]);
+    expect(await store.load(key)).not.toBeNull();
+
+    await wrapped.delete(key);
+    expect(await store.load(key)).toBeNull();
   });
 });

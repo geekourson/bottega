@@ -395,6 +395,9 @@ describe('runStreamingLoop', () => {
       });
 
       expect(result.authError).toBe(true);
+      // resultIsError stays false: the 401 path is fully handled by
+      // authError's own retry, not by failLinkedAgentRunIfRunning.
+      expect(result.resultIsError).toBe(false);
       // The synthetic message must NOT be broadcast — otherwise the UI flashes
       // "Failed to authenticate" before the retry recovers.
       expect(broadcastFn).not.toHaveBeenCalledWith(
@@ -434,6 +437,7 @@ describe('runStreamingLoop', () => {
       });
 
       expect(result.authError).toBe(true);
+      expect(result.resultIsError).toBe(false);
       // The result must NOT be broadcast or fed to the usage tracker — that
       // would record a "completed turn" for an auth failure.
       expect(broadcastFn).not.toHaveBeenCalledWith(
@@ -462,6 +466,7 @@ describe('runStreamingLoop', () => {
       });
 
       expect(result.authError).toBe(false);
+      expect(result.resultIsError).toBe(false);
     });
 
     it('does not flag authError for a non-auth SDKResultError', async () => {
@@ -487,6 +492,65 @@ describe('runStreamingLoop', () => {
       });
 
       expect(result.authError).toBe(false);
+    });
+  });
+
+  describe('non-auth in-band error detection (resultIsError)', () => {
+    // On current SDK versions, non-auth API errors (e.g. Ollama/local-ai's
+    // 400 "exceeds the available context size") are delivered as data on
+    // the final `result` message rather than thrown. The loop must surface
+    // this so the caller can pre-mark the linked agent run 'failed' instead
+    // of silently treating the turn as a success (see
+    // `failLinkedAgentRunIfRunning` in `agentRunLifecycle.ts`).
+
+    it('flags resultIsError on a non-auth result with is_error: true', async () => {
+      const queryInstance = asyncIterableOf([
+        {
+          type: 'result',
+          subtype: 'error_during_execution',
+          session_id: 'sess',
+          is_error: true,
+          errors: ['400 request exceeds the available context size (131072 tokens)'],
+          modelUsage: {},
+        },
+      ]);
+
+      const result = await runStreamingLoop({
+        queryInstance: queryInstance as never,
+        conversationId: 1,
+        broadcastFn: broadcastFn as never,
+        thinkingAcc: thinkingAcc as never,
+        contextUsageTracker: contextUsageTracker as never,
+        initialSessionId: 'sess',
+        onResult: vi.fn(),
+      });
+
+      expect(result.resultIsError).toBe(true);
+      expect(result.authError).toBe(false);
+      // Unlike the auth case, the error result still broadcasts normally —
+      // the user should see the failure message in the chat transcript.
+      expect(broadcastFn).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ type: 'claude-response' }),
+      );
+    });
+
+    it('does not flag resultIsError when the result is successful', async () => {
+      const queryInstance = asyncIterableOf([
+        { type: 'result', session_id: 'sess', is_error: false, modelUsage: {} },
+      ]);
+
+      const result = await runStreamingLoop({
+        queryInstance: queryInstance as never,
+        conversationId: 1,
+        broadcastFn: broadcastFn as never,
+        thinkingAcc: thinkingAcc as never,
+        contextUsageTracker: contextUsageTracker as never,
+        initialSessionId: 'sess',
+        onResult: vi.fn(),
+      });
+
+      expect(result.resultIsError).toBe(false);
     });
   });
 });

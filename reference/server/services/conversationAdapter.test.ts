@@ -1015,12 +1015,13 @@ it('should broadcast streaming-ended event when streaming completes', async () =
       expect(agentRunsDb.updateStatus).toHaveBeenCalledWith(5, 'completed');
     });
 
-    it("marks agent run 'completed' on SDK error and lets the loop chain to the next agent", async () => {
-      // Under the new model the streaming loop never writes 'failed' on
-      // catastrophic SDK errors. The catch path persists a synthetic
-      // sdk_error system message into the transcript and marks the run
-      // 'completed' so the next agent in the loop can pick up the recovery
-      // (e.g. retrying after a transient 529 overloaded).
+    it("marks agent run 'failed' on an unrecovered SDK error so the loop does not chain to the next agent", async () => {
+      // A genuine, unrecovered streaming error (not auth, not token-limit)
+      // reaches the catch block: failLinkedAgentRunIfRunning pre-marks the
+      // linked run 'failed' before composeOnComplete runs, so
+      // buildAgentRunCompletionHandler's "status !== 'running' → no-op"
+      // branch fires instead of silently marking it 'completed' and
+      // chaining to the next agent on a broken turn.
       const mockAgentRun = {
         id: 5,
         conversation_id: 1,
@@ -1028,6 +1029,12 @@ it('should broadcast streaming-ended event when streaming completes', async () =
         status: 'running'
       };
       vi.mocked(agentRunsDb.getByTask).mockReturnValue([mockAgentRun] as never);
+      // The mock returns the same object reference on every call — mutate
+      // it in place so a later read sees the status this test's earlier
+      // updateStatus call just wrote, mirroring how a real DB row behaves.
+      vi.mocked(agentRunsDb.updateStatus).mockImplementation(((id: number, status: string) => {
+        if (mockAgentRun.id === id) mockAgentRun.status = status;
+      }) as never);
 
       // First message returns session, then throws error
       let callCount = 0;
@@ -1050,8 +1057,8 @@ it('should broadcast streaming-ended event when streaming completes', async () =
       // Wait for error handling
       await new Promise(resolve => setTimeout(resolve, 50));
 
-      expect(agentRunsDb.updateStatus).toHaveBeenCalledWith(5, 'completed');
-      expect(agentRunsDb.updateStatus).not.toHaveBeenCalledWith(5, 'failed');
+      expect(agentRunsDb.updateStatus).toHaveBeenCalledWith(5, 'failed');
+      expect(agentRunsDb.updateStatus).not.toHaveBeenCalledWith(5, 'completed');
     });
 
     it('should timeout if session ID not received', async () => {
@@ -2191,16 +2198,19 @@ it('should broadcast streaming-ended event when streaming completes', async () =
       expect(broadcastFn).toHaveBeenCalledWith(1, expect.objectContaining({ type: 'claude-complete' }));
     });
 
-    it("startConversation: gives up after one retry — surfaces claude-error, marks 'completed' so the loop chains", async () => {
-      // Two consecutive 401s exhaust the in-process retry budget. Under the
-      // new deterministic-failed-writer model, the streaming loop does NOT
-      // write 'failed' on its way out — that's reserved for user-Stop and
-      // server-restart orphan recovery. The agent run is marked 'completed'
-      // and a synthetic sdk_error system message has been written into the
-      // conversation transcript. The next agent in the loop reads that
-      // message and decides what to do.
+    it("startConversation: gives up after one retry — surfaces claude-error, marks 'failed' so the loop does not chain", async () => {
+      // Two consecutive 401s exhaust the in-process retry budget. The
+      // second failure is a genuine, unrecovered error reaching the catch
+      // block's fallback path: failLinkedAgentRunIfRunning pre-marks the
+      // run 'failed' before composeOnComplete runs, blocking the chain to
+      // the next agent instead of silently marking it 'completed'.
       const agentRun = { id: 5, conversation_id: 1, agent_type: 'planification', status: 'running', task_id: 1 };
       vi.mocked(agentRunsDb.getByTask).mockReturnValue([agentRun] as never);
+      // Mutate the shared mock object in place so a later read reflects an
+      // earlier updateStatus call, mirroring a real DB row.
+      vi.mocked(agentRunsDb.updateStatus).mockImplementation(((id: number, status: string) => {
+        if (agentRun.id === id) agentRun.status = status;
+      }) as never);
 
       vi.mocked(query)
         .mockReturnValueOnce(iteratorThatYieldsThenThrows([{ session_id: 'session-123' }], new Error(AUTH_401_MESSAGE)) as never)
@@ -2212,8 +2222,8 @@ it('should broadcast streaming-ended event when streaming completes', async () =
 
       expect(query).toHaveBeenCalledTimes(2);
       expect(broadcastFn).toHaveBeenCalledWith(1, expect.objectContaining({ type: 'claude-error' }));
-      expect(agentRunsDb.updateStatus).toHaveBeenCalledWith(5, 'completed');
-      expect(agentRunsDb.updateStatus).not.toHaveBeenCalledWith(5, 'failed');
+      expect(agentRunsDb.updateStatus).toHaveBeenCalledWith(5, 'failed');
+      expect(agentRunsDb.updateStatus).not.toHaveBeenCalledWith(5, 'completed');
     });
 
     it('startConversation: does not retry non-auth streaming errors', async () => {
@@ -2312,13 +2322,19 @@ it('should broadcast streaming-ended event when streaming completes', async () =
         expect(broadcastFn).toHaveBeenCalledWith(1, expect.objectContaining({ type: 'claude-complete' }));
       });
 
-      it("startConversation: in-band 401 twice emits claude-error and marks 'completed' (loop continues)", async () => {
-        // Same shape as the thrown-error case above: post-simplification the
-        // streaming loop never writes 'failed'. The catch path persists a
-        // synthetic sdk_error message into the transcript and marks the run
-        // 'completed' so the loop can chain to the next agent.
+      it("startConversation: in-band 401 twice emits claude-error and marks 'failed' (loop does not continue)", async () => {
+        // Same shape as the thrown-error case above: the second in-band 401
+        // is a genuine, unrecovered error. failLinkedAgentRunIfRunning
+        // pre-marks the run 'failed' before composeOnComplete runs, so the
+        // loop does not chain to the next agent on a turn that never
+        // produced anything.
         const agentRun = { id: 7, conversation_id: 1, agent_type: 'planification', status: 'running', task_id: 1 };
         vi.mocked(agentRunsDb.getByTask).mockReturnValue([agentRun] as never);
+        // Mutate the shared mock object in place so a later read reflects an
+        // earlier updateStatus call, mirroring a real DB row.
+        vi.mocked(agentRunsDb.updateStatus).mockImplementation(((id: number, status: string) => {
+          if (agentRun.id === id) agentRun.status = status;
+        }) as never);
 
         const dead1 = createMockIterator([
           { session_id: 'session-123' },
@@ -2333,8 +2349,8 @@ it('should broadcast streaming-ended event when streaming completes', async () =
 
         expect(query).toHaveBeenCalledTimes(2);
         expect(broadcastFn).toHaveBeenCalledWith(1, expect.objectContaining({ type: 'claude-error' }));
-        expect(agentRunsDb.updateStatus).toHaveBeenCalledWith(7, 'completed');
-        expect(agentRunsDb.updateStatus).not.toHaveBeenCalledWith(7, 'failed');
+        expect(agentRunsDb.updateStatus).toHaveBeenCalledWith(7, 'failed');
+        expect(agentRunsDb.updateStatus).not.toHaveBeenCalledWith(7, 'completed');
       });
 
       it('sendMessage: in-band 401 transparently retries', async () => {

@@ -18,6 +18,7 @@ export function OllamaAuthPanel() {
   const [error, setError] = useState<string | null>(null);
   const [urlValue, setUrlValue] = useState('');
   const [maxTokensValue, setMaxTokensValue] = useState('');
+  const [contextWindowValue, setContextWindowValue] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
 
@@ -84,6 +85,32 @@ export function OllamaAuthPanel() {
       }
       setMaxTokensValue('');
       setInfo(`Max output tokens set to ${tokens.toLocaleString()}.`);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSaveContextWindow = async (): Promise<void> => {
+    const tokens = parseInt(contextWindowValue.trim(), 10);
+    if (!Number.isFinite(tokens) || tokens < 1000) {
+      setError('Context window must be a number ≥ 1000');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await api.ollamaAuth.setContextWindow(tokens);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(body.error ?? `Save failed (HTTP ${res.status})`);
+        return;
+      }
+      setContextWindowValue('');
+      setInfo(`Context window set to ${tokens.toLocaleString()}.`);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -251,6 +278,46 @@ export function OllamaAuthPanel() {
         </div>
         <p className="text-xs text-muted-foreground">
           Increase if Ollama models hit the output limit. Higher values use more GPU memory.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <label
+          htmlFor="ollama-context-window"
+          className="block text-sm font-medium text-foreground"
+        >
+          Context window{' '}
+          <span className="text-muted-foreground font-normal">
+            (current: {status?.contextWindowTokens?.toLocaleString() ?? '8,192'})
+          </span>
+        </label>
+        <div className="flex gap-2">
+          <input
+            id="ollama-context-window"
+            type="number"
+            min={1000}
+            step={1000}
+            value={contextWindowValue}
+            onChange={(e) => setContextWindowValue(e.target.value)}
+            placeholder={String(status?.contextWindowTokens ?? 8192)}
+            disabled={submitting}
+            data-testid="ollama-context-window-input"
+            className="w-40 font-mono text-xs bg-background border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+          <Button
+            onClick={handleSaveContextWindow}
+            disabled={submitting || !contextWindowValue.trim()}
+            data-testid="ollama-context-window-save"
+          >
+            {submitting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+            Save
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Must match the context size Ollama is actually configured with (its{' '}
+          <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">num_ctx</code>). Bottega
+          trims old conversation history on resume to stay under this limit — set it too high and
+          you'll see "exceeds the available context size" errors again.
         </p>
       </div>
 

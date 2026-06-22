@@ -17,6 +17,11 @@ import os from 'os';
 
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 const DEFAULT_MAX_OUTPUT_TOKENS = 64000;
+// Ollama's own default num_ctx is 2048 — well under what most models actually
+// support. 8192 is a conservative middle ground that fits small models while
+// still being large enough for normal multi-turn use; the user can raise it
+// in Settings → Providers → Ollama to match whatever they've configured.
+const DEFAULT_CONTEXT_WINDOW_TOKENS = 8192;
 
 export class OllamaCredentialsError extends Error {
   constructor(message: string) {
@@ -36,6 +41,10 @@ function resolveUrlFilePath(userId: number | string | undefined): string {
 
 function resolveMaxTokensFilePath(userId: number | string | undefined): string {
   return path.join(resolveUserDir(userId), 'ollama-max-tokens');
+}
+
+function resolveContextWindowFilePath(userId: number | string | undefined): string {
+  return path.join(resolveUserDir(userId), 'ollama-context-window');
 }
 
 export function resolveOllamaUrlPath(userId: number | string | undefined): string {
@@ -85,6 +94,26 @@ export async function writeOllamaMaxTokens(
   await fs.writeFile(filePath, String(tokens), { mode: 0o600 });
 }
 
+export function readOllamaContextWindow(userId: number | string | undefined): number {
+  const filePath = resolveContextWindowFilePath(userId);
+  try {
+    const raw = readFileSync(filePath, 'utf8').trim();
+    const parsed = parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CONTEXT_WINDOW_TOKENS;
+  } catch {
+    return DEFAULT_CONTEXT_WINDOW_TOKENS;
+  }
+}
+
+export async function writeOllamaContextWindow(
+  userId: number | string | undefined,
+  tokens: number,
+): Promise<void> {
+  const filePath = resolveContextWindowFilePath(userId);
+  await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  await fs.writeFile(filePath, String(tokens), { mode: 0o600 });
+}
+
 export async function clearOllamaUrl(
   userId: number | string | undefined,
 ): Promise<boolean> {
@@ -103,6 +132,7 @@ export interface OllamaAuthStatus {
   urlPath: string;
   url: string;
   maxOutputTokens: number;
+  contextWindowTokens: number;
   reason?: string;
 }
 
@@ -111,12 +141,13 @@ export async function getOllamaAuthStatus(
 ): Promise<OllamaAuthStatus> {
   const { url, urlPath } = readOllamaUrl(userId);
   const maxOutputTokens = readOllamaMaxTokens(userId);
+  const contextWindowTokens = readOllamaContextWindow(userId);
   try {
     const res = await fetch(`${url}/api/tags`, {
       signal: AbortSignal.timeout(3000),
     });
     if (res.ok) {
-      return { authenticated: true, status: 'authenticated', urlPath, url, maxOutputTokens };
+      return { authenticated: true, status: 'authenticated', urlPath, url, maxOutputTokens, contextWindowTokens };
     }
     return {
       authenticated: false,
@@ -124,6 +155,7 @@ export async function getOllamaAuthStatus(
       urlPath,
       url,
       maxOutputTokens,
+      contextWindowTokens,
       reason: `Ollama returned HTTP ${res.status}`,
     };
   } catch (err) {
@@ -134,6 +166,7 @@ export async function getOllamaAuthStatus(
       urlPath,
       url,
       maxOutputTokens,
+      contextWindowTokens,
       reason: `Cannot reach Ollama at ${url}: ${message}`,
     };
   }
