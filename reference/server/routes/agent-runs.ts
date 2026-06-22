@@ -24,6 +24,12 @@ import type { ServerToClientMessage } from '../../shared/websocket/messages.js';
 
 const router = express.Router();
 
+// Returns the task IDs currently waiting in the local GPU queue.
+// Called by the frontend on mount and WebSocket reconnect to resync the queue display.
+router.get('/agent-runs/queued-tasks', (_req: Request, res: Response) => {
+  res.json({ taskIds: localGpuQueue.getQueuedTaskIds() });
+});
+
 const VALID_AGENT_TYPES: AgentType[] = [
   'planification',
   'implementation',

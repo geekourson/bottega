@@ -759,6 +759,28 @@ export function TaskContextProvider({ children }: { children: ReactNode }) {
     void fetchAwaitingQuestions();
   }, [isConnected]);
 
+  // Resync the local GPU queue on mount and after WebSocket reconnect.
+  // The live transitions arrive over WS (`task-queued` / `streaming-started`),
+  // but those messages are not replayed on reconnect, so we snapshot the queue
+  // from the server every time the connection is (re-)established.
+  useEffect(() => {
+    const fetchQueuedTasks = async () => {
+      try {
+        const response = await api.agentRuns.queuedTasks();
+        if (response.ok) {
+          const data = await response.json();
+          const taskIds = new Set<number>(data.taskIds);
+          setQueuedTaskIds(taskIds);
+          queuedTaskIdsRef.current = taskIds;
+        }
+      } catch (err) {
+        console.error('Error fetching queued tasks:', err);
+      }
+    };
+
+    void fetchQueuedTasks();
+  }, [isConnected]);
+
   // Subscribe to streaming events via WebSocket
   useEffect(() => {
     if (!subscribe || !unsubscribe) return;

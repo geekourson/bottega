@@ -692,6 +692,8 @@ export const api = {
         `/api/projects/${projectId}/agent-runs/start-pending`,
         { method: 'POST' },
       ),
+    queuedTasks: (): TypedFetch<{ taskIds: number[] }> =>
+      authenticatedFetch<{ taskIds: number[] }>('/api/agent-runs/queued-tasks'),
   },
 
   // Streaming sessions (for live indicator). The endpoint lives inline in

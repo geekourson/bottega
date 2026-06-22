@@ -100,6 +100,10 @@ class LocalGpuQueue {
   getQueueLength(): number {
     return this.queue.length;
   }
+
+  getQueuedTaskIds(): number[] {
+    return this.queue.map((e) => e.taskId);
+  }
 }
 
 // Module-level singleton: one GPU queue per server process.

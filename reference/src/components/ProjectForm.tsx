@@ -6,9 +6,10 @@
  */
 
 import { useState, useEffect, type FormEvent } from 'react';
-import { X } from 'lucide-react';
+import { X, FolderOpen } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import FolderPickerModal from './FolderPickerModal';
 
 export interface ProjectFormSubmitData {
   name: string;
@@ -36,6 +37,7 @@ function ProjectForm({
   const [name, setName] = useState('');
   const [repoFolderPath, setRepoFolderPath] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -128,17 +130,27 @@ function ProjectForm({
 
             {/* Repository folder path */}
             <div className="space-y-2">
-              <label htmlFor="repo-path" className="text-sm font-medium text-foreground">
+              <label className="text-sm font-medium text-foreground">
                 Repository Folder Path
               </label>
-              <Input
-                id="repo-path"
-                type="text"
-                value={repoFolderPath}
-                onChange={(e) => setRepoFolderPath(e.target.value)}
-                placeholder="/path/to/your/project"
-              />
+              <button
+                type="button"
+                onClick={() => setFolderPickerOpen(true)}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-md border border-input bg-background text-sm text-left hover:bg-accent transition-colors"
+              >
+                <FolderOpen className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span className={repoFolderPath ? 'text-foreground truncate' : 'text-muted-foreground'}>
+                  {repoFolderPath || 'Choisir un dossier…'}
+                </span>
+              </button>
             </div>
+
+            <FolderPickerModal
+              isOpen={folderPickerOpen}
+              onClose={() => setFolderPickerOpen(false)}
+              onSelect={(path) => setRepoFolderPath(path)}
+              initialPath={repoFolderPath || undefined}
+            />
 
             {/* Actions */}
             <div className="flex gap-2 pt-4">

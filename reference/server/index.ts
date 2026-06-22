@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Load environment variables from .env file
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -216,6 +217,29 @@ app.use('/api/user-agent-model-settings', authenticateToken, userAgentModelSetti
 
 app.use('/api', authenticateToken, poSessionsRoutes);
 app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
+
+app.get('/api/filesystem/browse', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const rawPath = req.query.path as string | undefined;
+    const targetPath = rawPath ? path.resolve(rawPath) : os.homedir();
+
+    const entries = await fsPromises.readdir(targetPath, { withFileTypes: true });
+    const dirs = entries
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+      .map((e) => ({ name: e.name, path: path.join(targetPath, e.name) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const parent = path.dirname(targetPath);
+    res.json({ current: targetPath, parent: parent !== targetPath ? parent : null, entries: dirs });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'EACCES' || code === 'EPERM') {
+      res.status(403).json({ error: 'Permission denied' });
+    } else {
+      res.status(500).json({ error: 'Failed to browse directory' });
+    }
+  }
+});
 
 app.get('/api/streaming-sessions', authenticateToken, (req, res) => {
   const sessions = getAllActiveStreamingSessions(req.user?.id);

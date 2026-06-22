@@ -567,6 +567,24 @@ function ChatInterface({
     setOpenAskPanel(null);
   }, [activeConversation?.id]);
 
+  // Auto-open the panel when history loads and there is an unanswered
+  // AskUserQuestion. Covers: page refresh, and navigating from the board
+  // to a task whose agent is parked on a question.
+  // Depends only on sessionMessages (history) so it doesn't fire during
+  // active streaming when streamingMessages are appended.
+  useEffect(() => {
+    if (openAskPanel) return;
+    const idx = indexAskWidgets(displayMessages);
+    for (const [toolId, entry] of idx) {
+      if (entry.isDuplicate) continue;
+      const state = getAskWidgetState(toolId, entry.questions, displayMessages, idx);
+      if (state.isAnswered) continue;
+      setOpenAskPanel({ toolId, questions: entry.questions });
+      break;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionMessages]);
+
   // Load messages when conversation changes.
   // For NEW conversations: skip loading - use __initialMessage + WS streaming.
   // For RESUMED conversations: load history from JSONL via REST API.

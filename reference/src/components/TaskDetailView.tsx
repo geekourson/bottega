@@ -444,6 +444,10 @@ function TaskDetailView({
           if (data.url) {
             window.open(`${data.url}/files`, '_blank');
           }
+          // Move task to in_review when PR is created manually
+          if (onStatusChange && task.status !== 'in_review' && task.status !== 'completed') {
+            await onStatusChange(task.id, 'in_review');
+          }
           // Fetch full PR status to get mergeable flag after a short delay
           // (GitHub needs time to compute mergeability)
           setTimeout(async () => {
@@ -1067,6 +1071,38 @@ Please:
                     <ExternalLink className="w-3.5 h-3.5" />
                     View PR
                   </a>
+                  {/* Refresh PR status button - shown when mergeable is unknown, null, or any non-final state */}
+                  {prStatus.exists && prStatus.mergeable !== 'MERGEABLE' && prStatus.mergeable !== 'CONFLICTING' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          const prResponse = await api.tasks.getPR(task.id);
+                          if (prResponse.ok) {
+                            const prData = await prResponse.json();
+                            setPrStatus(prData as PRStatus);
+                          }
+                        } catch (err) {
+                          console.error('Failed to refresh PR status:', err);
+                        }
+                      }}
+                      className="h-7 text-xs"
+                      title="Click to refresh merge status from GitHub"
+                    >
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5" />
+                      Refresh merge status
+                    </Button>
+                  )}
+
+                  {/* Conflicts indicator */}
+                  {prStatus.exists && prStatus.mergeable === 'CONFLICTING' && (
+                    <span className="inline-flex items-center gap-1 h-7 px-2.5 text-xs font-medium rounded-md border border-red-500/50 bg-red-500/10 text-red-600 dark:text-red-400">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      Merge conflicts
+                    </span>
+                  )}
+
                   {/* Merge & Cleanup button - appearance based on CI status */}
                   {prStatus.mergeable === 'MERGEABLE' && (() => {
                     const ciStatus = prStatus.ciStatus?.status || 'none';

@@ -23,6 +23,7 @@ import {
   removeWorktree,
   worktreeExists,
   getWorktreeStatus,
+  repairWorktree,
   syncWithMain,
   getPullRequestStatus,
   mergeAndCleanup,
@@ -926,7 +927,13 @@ router.post(
       }
 
       if (await worktreeExists(taskWithProject.repo_folder_path, taskId)) {
-        return res.status(409).json({ error: 'Worktree already exists' } satisfies ApiError);
+        // Try to repair the broken worktree before failing
+        await repairWorktree(taskWithProject.repo_folder_path, taskId);
+        const repaired = await getWorktreeStatus(taskWithProject.repo_folder_path, taskId);
+        if (repaired.success) {
+          return res.status(200).json(repaired);
+        }
+        return res.status(409).json({ error: 'Worktree already exists but is in a broken state. Try repairing it.' } satisfies ApiError);
       }
 
       const result = await createWorktree(
@@ -950,6 +957,36 @@ router.post(
 );
 
 router.post(
+  '/tasks/:id/worktree/repair',
+  validateParams(IdParamsSchema),
+  async (req: Request, res: Response<unknown>) => {
+    try {
+      const userId = req.user!.id;
+      const { id: taskId } = req.validated!.params as IdParams;
+
+      const taskWithProject = tasksDb.getWithProject(taskId);
+      if (!taskWithProject) {
+        return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
+      }
+      if (!hasProjectAccess(taskWithProject.project_id, userId)) {
+        return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
+      }
+
+      const repair = await repairWorktree(taskWithProject.repo_folder_path, taskId);
+      if (!repair.success) {
+        return res.status(500).json({ error: repair.error || 'Repair failed' } satisfies ApiError);
+      }
+
+      const status = await getWorktreeStatus(taskWithProject.repo_folder_path, taskId);
+      res.json(status);
+    } catch (error) {
+      console.error('Error repairing worktree:', error);
+      res.status(500).json({ error: 'Failed to repair worktree' } satisfies ApiError);
+    }
+  },
+);
+
+router.post(
   '/tasks/:id/sync',
   validateParams(IdParamsSchema),
   async (req: Request, res: Response<unknown>) => {
@@ -967,7 +1004,7 @@ router.post(
         return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
       }
 
-      const result = await syncWithMain(taskWithProject.repo_folder_path, taskId);
+      const result = await syncWithMain(taskWithProject.repo_folder_path, taskId, userId, taskWithProject.project_id);
       res.json(result);
     } catch (error) {
       console.error('Error syncing with main:', error);
@@ -1136,7 +1173,7 @@ router.post(
       const { commitMessage } = req.validated!.body as PushChangesBody;
       const message = commitMessage || taskWithProject.title || `Task #${taskId}`;
 
-      const result = await pushChanges(taskWithProject.repo_folder_path, taskId, message);
+      const result = await pushChanges(taskWithProject.repo_folder_path, taskId, message, userId, taskWithProject.project_id);
       res.json(result);
     } catch (error) {
       console.error('Error pushing changes:', error);

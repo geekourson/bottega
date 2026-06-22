@@ -5,6 +5,36 @@ import { assertValidBranchName } from './validators.js';
 import { getGitHubToken } from './githubCredentials.js';
 
 /**
+ * Build env vars for git/gh commands that need GitHub authentication.
+ *
+ * Git HTTPS uses Basic auth via credential helpers. If macOS Keychain (or any
+ * other helper) has a stale token for github.com, it will override everything
+ * else and cause "invalid credentials" errors.
+ *
+ * The fix: use GIT_CONFIG_COUNT to (1) reset the credential helper list with
+ * an empty value, then (2) inject our own inline helper that reads GH_TOKEN
+ * from the environment. GIT_CONFIG is command-line priority (highest), so the
+ * empty-string reset runs after system/global helpers are accumulated,
+ * clearing them before git makes any credential lookup.
+ */
+function buildGitAuthEnv(ghToken: string | null): Record<string, string> {
+  const base: Record<string, string> = {
+    GIT_TERMINAL_PROMPT: '0',
+    GH_PROMPT_DISABLED: '1',
+  };
+  if (!ghToken) return base;
+  return {
+    ...base,
+    GH_TOKEN: ghToken,
+    GIT_CONFIG_COUNT: '2',
+    GIT_CONFIG_KEY_0: 'credential.helper',
+    GIT_CONFIG_VALUE_0: '', // empty string resets the accumulated helper list
+    GIT_CONFIG_KEY_1: 'credential.helper',
+    GIT_CONFIG_VALUE_1: '!f(){ printf "username=oauth2\\npassword=%s\\n" "$GH_TOKEN"; }; f',
+  };
+}
+
+/**
  * Derive the worktree path for a task based on convention
  */
 export function getWorktreePath(repoPath: string, taskId: number): string {
@@ -257,6 +287,7 @@ export async function removeWorktree(
 
 export interface WorktreeStatusResult {
   success: boolean;
+  broken?: boolean;
   branch?: string | null;
   ahead?: number;
   behind?: number;
@@ -280,12 +311,8 @@ export async function getWorktreeStatus(
     const branch = await getBranchName(worktreePath);
     const mainBranch = assertValidBranchName(await getDefaultBranch(repoPath), 'default branch');
 
-    try {
-      await runCommand('git', ['fetch', 'origin'], { cwd: worktreePath });
-    } catch {
-      /* ignore */
-    }
-
+    // No fetch here — avoids blocking on a 30 s network timeout on every page load.
+    // The rev-list uses locally cached remote refs; "Pull" triggers the actual fetch.
     let ahead = 0;
     let behind = 0;
     try {
@@ -311,6 +338,28 @@ export async function getWorktreeStatus(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    // If the directory exists but git operations failed, mark as broken
+    try {
+      await fs.promises.access(worktreePath);
+      return { success: false, broken: true, worktreePath, error: message };
+    } catch {
+      return { success: false, error: message };
+    }
+  }
+}
+
+/**
+ * Repair a broken worktree using `git worktree repair`
+ */
+export async function repairWorktree(
+  repoPath: string,
+  taskId: number,
+): Promise<RemoveWorktreeResult> {
+  try {
+    await runCommand('git', ['worktree', 'repair'], { cwd: repoPath });
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     return { success: false, error: message };
   }
 }
@@ -321,13 +370,17 @@ export async function getWorktreeStatus(
 export async function syncWithMain(
   repoPath: string,
   taskId: number,
+  userId?: number,
+  projectId?: number,
 ): Promise<RemoveWorktreeResult> {
   const worktreePath = getWorktreePath(repoPath, taskId);
+  const ghToken = userId ? getGitHubToken(userId, projectId) : null;
+  const gitEnv = buildGitAuthEnv(ghToken);
 
   try {
     const mainBranch = assertValidBranchName(await getDefaultBranch(repoPath), 'default branch');
 
-    await runCommand('git', ['fetch', 'origin'], { cwd: worktreePath });
+    await runCommand('git', ['fetch', 'origin'], { cwd: worktreePath, env: gitEnv });
     await runCommand('git', ['merge', `origin/${mainBranch}`], { cwd: worktreePath });
 
     return { success: true };
@@ -356,7 +409,7 @@ export async function createPullRequest(
 ): Promise<CreatePRResult> {
   const worktreePath = getWorktreePath(repoPath, taskId);
   const ghToken = userId ? getGitHubToken(userId, projectId) : null;
-  const ghEnv = ghToken ? { GH_TOKEN: ghToken } : {};
+  const gitEnv = buildGitAuthEnv(ghToken);
 
   try {
     const branch = await getBranchName(worktreePath);
@@ -365,14 +418,14 @@ export async function createPullRequest(
     }
     assertValidBranchName(branch);
 
-    await runCommand('git', ['push', '-u', 'origin', branch], { cwd: worktreePath });
+    await runCommand('git', ['push', '-u', 'origin', branch], { cwd: worktreePath, env: gitEnv });
 
     // Title and body pass straight through as argv. No escaping needed —
     // shell metacharacters inside title/body are literal bytes here.
     const { stdout } = await runCommand(
       'gh',
       ['pr', 'create', '--title', title, '--body', body],
-      { cwd: worktreePath, env: ghEnv },
+      { cwd: worktreePath, env: gitEnv },
     );
 
     return { success: true, url: stdout.trim() };
@@ -416,11 +469,11 @@ export async function getPullRequestStatus(
   const worktreePath = getWorktreePath(repoPath, taskId);
 
   const ghToken = userId !== undefined ? getGitHubToken(userId, projectId) : null;
-  const ghEnv: Record<string, string> = ghToken ? { GH_TOKEN: ghToken } : {};
+  const ghEnv = buildGitAuthEnv(ghToken);
 
   let prData: { url: string; state: string; mergeable: string } | null = null;
 
-  // Primary: gh pr view (detects PR from current branch)
+  // Primary: gh pr view (detects PR from current branch, open only)
   try {
     const { stdout } = await runCommand(
       'gh',
@@ -428,18 +481,19 @@ export async function getPullRequestStatus(
       { cwd: worktreePath, env: ghEnv },
     );
     prData = JSON.parse(stdout) as { url: string; state: string; mergeable: string };
+    console.log(`[getPullRequestStatus] task ${taskId}: state=${prData.state} mergeable=${prData.mergeable}`);
   } catch (viewErr) {
     console.warn(`[getPullRequestStatus] gh pr view failed for task ${taskId}:`, viewErr);
   }
 
-  // Fallback: gh pr list --head <branch> (more explicit, works even when branch detection fails)
+  // Fallback: gh pr list --head <branch> --state=all (finds open, merged, and closed PRs)
   if (!prData) {
     try {
       const branch = await getBranchName(worktreePath);
       if (branch) {
         const { stdout } = await runCommand(
           'gh',
-          ['pr', 'list', '--head', branch, '--json', 'url,state,mergeable', '--limit', '1'],
+          ['pr', 'list', '--head', branch, '--state', 'all', '--json', 'url,state,mergeable', '--limit', '1'],
           { cwd: worktreePath, env: ghEnv },
         );
         const list = JSON.parse(stdout) as { url: string; state: string; mergeable: string }[];
@@ -508,7 +562,7 @@ export async function mergeAndCleanup(
 ): Promise<RemoveWorktreeResult> {
   const worktreePath = getWorktreePath(repoPath, taskId);
   const ghToken = userId ? getGitHubToken(userId, projectId) : null;
-  const ghEnv = ghToken ? { GH_TOKEN: ghToken } : {};
+  const gitEnv = buildGitAuthEnv(ghToken);
 
   try {
     const branch = await getBranchName(worktreePath);
@@ -518,7 +572,7 @@ export async function mergeAndCleanup(
     let lastMergeError: Error | null = null;
     for (let mergeAttempt = 0; mergeAttempt < 3 && !merged; mergeAttempt++) {
       try {
-        await runCommand('gh', ['pr', 'merge', '--merge'], { cwd: worktreePath, env: ghEnv });
+        await runCommand('gh', ['pr', 'merge', '--merge'], { cwd: worktreePath, env: gitEnv });
         merged = true;
       } catch (mergeError) {
         lastMergeError = mergeError instanceof Error ? mergeError : new Error(String(mergeError));
@@ -529,7 +583,7 @@ export async function mergeAndCleanup(
         if (is502 || isMergeInProgress) {
           await new Promise((resolve) => setTimeout(resolve, 5000));
           try {
-            await runCommand('git', ['fetch', 'origin'], { cwd: worktreePath });
+            await runCommand('git', ['fetch', 'origin'], { cwd: worktreePath, env: gitEnv });
             const { stdout: branchHead } = await runCommand('git', ['rev-parse', 'HEAD'], {
               cwd: worktreePath,
             });
@@ -566,7 +620,7 @@ export async function mergeAndCleanup(
     }
 
     await runCommand('git', ['checkout', mainBranch], { cwd: repoPath });
-    await runCommand('git', ['pull', '--autostash'], { cwd: repoPath });
+    await runCommand('git', ['pull', '--autostash'], { cwd: repoPath, env: gitEnv });
 
     return { success: true };
   } catch (error) {
@@ -639,8 +693,12 @@ export async function pushChanges(
   repoPath: string,
   taskId: number,
   commitMessage: string,
+  userId?: number,
+  projectId?: number,
 ): Promise<PushChangesResult> {
   const worktreePath = getWorktreePath(repoPath, taskId);
+  const ghToken = userId ? getGitHubToken(userId, projectId) : null;
+  const gitEnv = buildGitAuthEnv(ghToken);
 
   try {
     const { stdout: status } = await runCommand('git', ['status', '--porcelain'], {
@@ -657,7 +715,7 @@ export async function pushChanges(
       return { success: false, error: 'Could not determine worktree branch' };
     }
     assertValidBranchName(branch);
-    await runCommand('git', ['push', 'origin', branch], { cwd: worktreePath });
+    await runCommand('git', ['push', 'origin', branch], { cwd: worktreePath, env: gitEnv });
 
     return { success: true };
   } catch (error) {
