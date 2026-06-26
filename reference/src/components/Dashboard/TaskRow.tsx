@@ -13,6 +13,7 @@ import { FileText, Trash2, ChevronRight, Circle, CheckCircle } from 'lucide-reac
 import { cn } from '../../lib/utils';
 import { useTaskContext } from '../../contexts/TaskContext';
 import type { TaskRow as TaskRowDb, ProjectRow } from '../../../shared/types/db';
+import { parseSqliteUTC } from '../../utils/date';
 
 // Tasks shown in the row may carry server-side decorated fields not in the
 // raw DB row (live indicator, conversation count, joined project name).
@@ -26,7 +27,7 @@ export interface DisplayTask extends TaskRowDb {
 // Format relative time
 function formatTimeAgo(dateString: string | null | undefined): string {
   if (!dateString) return '';
-  const date = new Date(dateString);
+  const date = parseSqliteUTC(dateString);
   const now = new Date();
 
   if (isNaN(date.getTime())) return '';

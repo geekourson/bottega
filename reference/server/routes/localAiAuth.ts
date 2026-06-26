@@ -16,6 +16,7 @@ import {
   writeLocalAiUrl,
   writeLocalAiMaxTokens,
   writeLocalAiContextWindow,
+  writeLocalAiDisableProxy,
 } from '../services/localAiCredentials.js';
 import { seedAgentSettingsAfterConnect } from '../services/agentModelSettings.js';
 import type {
@@ -25,6 +26,7 @@ import type {
   SetLocalAiUrlResponse,
   SetLocalAiMaxTokensResponse,
   SetLocalAiContextWindowResponse,
+  SetLocalAiDisableProxyResponse,
 } from '../../shared/api/localAiAuth.js';
 import type { ApiError } from '../../shared/api/_common.js';
 
@@ -62,6 +64,7 @@ router.get(
         urlPath: status.urlPath,
         maxOutputTokens: status.maxOutputTokens,
         contextWindowTokens: status.contextWindowTokens,
+        disableProxy: status.disableProxy,
         ...(status.reason !== undefined ? { reason: status.reason } : {}),
       });
     } catch (error) {
@@ -139,6 +142,25 @@ router.put(
     try {
       await writeLocalAiContextWindow(req.user!.id, tokens);
       res.status(201).json({ ok: true, contextWindowTokens: tokens });
+    } catch (error) {
+      authErrorResponse(res as Response<LocalAiAuthErrorBody | ApiError>, error);
+    }
+  },
+);
+
+router.put(
+  '/disable-proxy',
+  async (req: Request, res: Response<SetLocalAiDisableProxyResponse | LocalAiAuthErrorBody>) => {
+    const body = req.body as { disableProxy?: unknown };
+    if (typeof body.disableProxy !== 'boolean') {
+      return res.status(400).json({
+        error: 'disableProxy must be a boolean',
+        code: 'LOCAL_AI_AUTH_INVALID_PAYLOAD',
+      });
+    }
+    try {
+      await writeLocalAiDisableProxy(req.user!.id, body.disableProxy);
+      res.status(201).json({ ok: true, disableProxy: body.disableProxy });
     } catch (error) {
       authErrorResponse(res as Response<LocalAiAuthErrorBody | ApiError>, error);
     }

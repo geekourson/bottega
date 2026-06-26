@@ -12,10 +12,11 @@ import { Plus, MessageSquare, Clock, Trash2, Play, Pencil } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import type { ConversationRow } from '../../shared/types/db';
+import { parseSqliteUTC } from '../utils/date';
 
 // Format relative time
 function formatTimeAgo(dateString: string): string {
-  const date = new Date(dateString);
+  const date = parseSqliteUTC(dateString);
   const now = new Date();
 
   if (isNaN(date.getTime())) {

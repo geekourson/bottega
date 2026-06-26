@@ -152,6 +152,7 @@ import type {
   ClearLocalAiUrlResponse,
   SetLocalAiMaxTokensResponse,
   SetLocalAiContextWindowResponse,
+  SetLocalAiDisableProxyResponse,
 } from '../../shared/api/localAiAuth';
 import type {
   ConnectedProvidersResponse,
@@ -372,6 +373,11 @@ export const api = {
       }),
     models: (): TypedFetch<LocalAiModelsResponse> =>
       authenticatedFetch<LocalAiModelsResponse>('/api/local-ai-auth/models'),
+    setDisableProxy: (disableProxy: boolean): TypedFetch<SetLocalAiDisableProxyResponse> =>
+      authenticatedFetch<SetLocalAiDisableProxyResponse>('/api/local-ai-auth/disable-proxy', {
+        method: 'PUT',
+        body: JSON.stringify({ disableProxy }),
+      }),
   },
 
   codexAuth: {

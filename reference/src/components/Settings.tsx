@@ -65,11 +65,24 @@ function Settings({
   const [notifEnabled, setNotifEnabled] = useState(() =>
     localStorage.getItem('desktop-notifications-enabled') !== 'false'
   );
+  const [notifError, setNotifError] = useState<string | null>(null);
 
   const handleRequestNotifPermission = async () => {
-    if (typeof Notification === 'undefined') return;
-    const result = await Notification.requestPermission();
-    setNotifPermission(result);
+    setNotifError(null);
+    if (typeof Notification === 'undefined') {
+      setNotifError('Les notifications ne sont pas supportées par ce navigateur.');
+      return;
+    }
+    if (!window.isSecureContext) {
+      setNotifError('Les notifications nécessitent une connexion sécurisée (HTTPS).');
+      return;
+    }
+    try {
+      const result = await Notification.requestPermission();
+      setNotifPermission(result);
+    } catch (err) {
+      setNotifError(err instanceof Error ? err.message : 'Impossible de demander la permission.');
+    }
   };
 
   const handleToggleNotif = (enabled: boolean) => {
@@ -869,14 +882,19 @@ function Settings({
                     )}
 
                     {notifPermission === 'default' && (
-                      <Button
-                        size="sm"
-                        onClick={handleRequestNotifPermission}
-                        className="w-full"
-                      >
-                        <Bell className="w-4 h-4 mr-2" />
-                        Demander la permission
-                      </Button>
+                      <div className="space-y-2">
+                        <Button
+                          size="sm"
+                          onClick={() => void handleRequestNotifPermission()}
+                          className="w-full"
+                        >
+                          <Bell className="w-4 h-4 mr-2" />
+                          Demander la permission
+                        </Button>
+                        {notifError && (
+                          <p className="text-xs text-red-600 dark:text-red-400">{notifError}</p>
+                        )}
+                      </div>
                     )}
 
                     {/* Toggle activé/désactivé */}

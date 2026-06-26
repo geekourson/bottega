@@ -7,6 +7,7 @@ export interface LocalAiAuthStatusResponse {
   urlPath: string | null;
   maxOutputTokens: number;
   contextWindowTokens: number;
+  disableProxy: boolean;
   reason?: string;
 }
 
@@ -39,6 +40,15 @@ export interface SetLocalAiContextWindowRequest {
 export interface SetLocalAiContextWindowResponse {
   ok: true;
   contextWindowTokens: number;
+}
+
+export interface SetLocalAiDisableProxyRequest {
+  disableProxy: boolean;
+}
+
+export interface SetLocalAiDisableProxyResponse {
+  ok: true;
+  disableProxy: boolean;
 }
 
 export interface LocalAiModelEntry {

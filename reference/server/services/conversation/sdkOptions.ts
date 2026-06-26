@@ -16,6 +16,13 @@ const ASK_USER_QUESTION_LIMIT_NOTE =
   '\n\nWhen using the AskUserQuestion tool, ask at most 4 questions per call. ' +
   'If you have more questions, split them across multiple sequential AskUserQuestion calls.';
 
+// Token-saving directive: steer the model away from verbose preambles and
+// meta-commentary that inflate output token counts without adding information
+// value. A brief summary at the end of a completed action is still expected.
+const VERBOSITY_REDUCTION_NOTE =
+  '\n\nBe concise. Skip preambles and meta-commentary — no "I will now…", ' +
+  'no restating the task. A short summary after completing an action is fine.';
+
 export interface ValidateOptionsInput {
   broadcastFn?: unknown;
   permissionMode?: PermissionMode | undefined;
@@ -125,12 +132,12 @@ export function mapOptionsToSDK(options: MapOptionsInput): SDKOptions {
 
   if (customSystemPrompt) {
     // Custom agents use full override - plain string replaces the entire system prompt
-    sdkOptions.systemPrompt = customSystemPrompt + ASK_USER_QUESTION_LIMIT_NOTE + extraAppend;
+    sdkOptions.systemPrompt = customSystemPrompt + ASK_USER_QUESTION_LIMIT_NOTE + VERBOSITY_REDUCTION_NOTE + extraAppend;
   } else {
     sdkOptions.systemPrompt = {
       type: 'preset',
       preset: 'claude_code',
-      append: ASK_USER_QUESTION_LIMIT_NOTE + extraAppend,
+      append: ASK_USER_QUESTION_LIMIT_NOTE + VERBOSITY_REDUCTION_NOTE + extraAppend,
     };
   }
 

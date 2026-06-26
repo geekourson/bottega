@@ -51,8 +51,9 @@ import {
 } from './startOpenCodeConversation.js';
 import { buildOllamaSdkEnv, readOllamaContextWindow } from '../ollamaCredentials.js';
 import { parseOllamaModel } from '../providers/ollama/index.js';
-import { buildLocalAiSdkEnv, readLocalAiContextWindow } from '../localAiCredentials.js';
+import { buildLocalAiSdkEnv, readLocalAiContextWindow, readLocalAiUrl, readLocalAiDisableProxy } from '../localAiCredentials.js';
 import { parseLocalAiModel } from '../providers/local-ai/index.js';
+import { ensureLocalAiProxy } from '../localAiProxy.js';
 import { sqliteSessionStore, createTruncatingSessionStore } from '../sqliteSessionStore.js';
 import type { ConversationOptions, StreamingContext } from './types.js';
 
@@ -131,6 +132,8 @@ export async function startConversation(
     sdkEnv = buildOllamaSdkEnv(userId);
   } else if (isLocalAi) {
     sdkModel = parseLocalAiModel(model);
+    const { url: localAiUrl } = readLocalAiUrl(userId);
+    await ensureLocalAiProxy(localAiUrl, readLocalAiDisableProxy(userId));
     sdkEnv = buildLocalAiSdkEnv(userId);
   } else {
     await ensureFreshClaudeToken(userId);
@@ -608,6 +611,8 @@ export async function sendMessage(
     resumeEnv = buildOllamaSdkEnv(userId);
   } else if (isLocalAiResume) {
     resumeSdkModel = parseLocalAiModel(resumeModel);
+    const { url: localAiResumeUrl } = readLocalAiUrl(userId);
+    await ensureLocalAiProxy(localAiResumeUrl, readLocalAiDisableProxy(userId));
     resumeEnv = buildLocalAiSdkEnv(userId);
   } else {
     await ensureFreshClaudeToken(userId);

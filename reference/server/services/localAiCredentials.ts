@@ -14,6 +14,7 @@
 import { promises as fs, readFileSync } from 'fs';
 import path from 'path';
 import os from 'os';
+import { getLocalAiProxyUrl } from './localAiProxy.js';
 
 export const DEFAULT_LOCAL_AI_URL = 'http://localhost:8080';
 const DEFAULT_MAX_OUTPUT_TOKENS = 64000;
@@ -44,6 +45,10 @@ function resolveMaxTokensFilePath(userId: number | string | undefined): string {
 
 function resolveContextWindowFilePath(userId: number | string | undefined): string {
   return path.join(resolveUserDir(userId), 'local-ai-context-window');
+}
+
+function resolveDisableProxyFilePath(userId: number | string | undefined): string {
+  return path.join(resolveUserDir(userId), 'local-ai-disable-proxy');
 }
 
 export function resolveLocalAiUrlPath(userId: number | string | undefined): string {
@@ -113,6 +118,25 @@ export async function writeLocalAiContextWindow(
   await fs.writeFile(filePath, String(tokens), { mode: 0o600 });
 }
 
+export function readLocalAiDisableProxy(userId: number | string | undefined): boolean {
+  const filePath = resolveDisableProxyFilePath(userId);
+  try {
+    const raw = readFileSync(filePath, 'utf8').trim();
+    return raw === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export async function writeLocalAiDisableProxy(
+  userId: number | string | undefined,
+  disable: boolean,
+): Promise<void> {
+  const filePath = resolveDisableProxyFilePath(userId);
+  await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  await fs.writeFile(filePath, String(disable), { mode: 0o600 });
+}
+
 export async function clearLocalAiUrl(
   userId: number | string | undefined,
 ): Promise<boolean> {
@@ -132,6 +156,7 @@ export interface LocalAiAuthStatus {
   url: string;
   maxOutputTokens: number;
   contextWindowTokens: number;
+  disableProxy: boolean;
   reason?: string;
 }
 
@@ -141,6 +166,7 @@ export async function getLocalAiAuthStatus(
   const { url, urlPath } = readLocalAiUrl(userId);
   const maxOutputTokens = readLocalAiMaxTokens(userId);
   const contextWindowTokens = readLocalAiContextWindow(userId);
+  const disableProxy = readLocalAiDisableProxy(userId);
   try {
     // GET /v1/models is available on all major local servers and doubles as a
     // health check — if it responds with a 2xx we consider the server live.
@@ -148,7 +174,7 @@ export async function getLocalAiAuthStatus(
       signal: AbortSignal.timeout(3000),
     });
     if (res.ok) {
-      return { authenticated: true, status: 'authenticated', urlPath, url, maxOutputTokens, contextWindowTokens };
+      return { authenticated: true, status: 'authenticated', urlPath, url, maxOutputTokens, contextWindowTokens, disableProxy };
     }
     return {
       authenticated: false,
@@ -157,6 +183,7 @@ export async function getLocalAiAuthStatus(
       url,
       maxOutputTokens,
       contextWindowTokens,
+      disableProxy,
       reason: `Server returned HTTP ${res.status}`,
     };
   } catch (err) {
@@ -168,6 +195,7 @@ export async function getLocalAiAuthStatus(
       url,
       maxOutputTokens,
       contextWindowTokens,
+      disableProxy,
       reason: `Cannot reach server at ${url}: ${message}`,
     };
   }
@@ -210,11 +238,15 @@ export function buildLocalAiSdkEnv(
 ): Record<string, string | undefined> {
   const { url } = readLocalAiUrl(userId);
   const maxTokens = readLocalAiMaxTokens(userId);
+  // Use proxy URL unless the user explicitly disabled the proxy.
+  // Falls back to the direct URL if the proxy was never started.
+  const disableProxy = readLocalAiDisableProxy(userId);
+  const effectiveUrl = disableProxy ? url : (getLocalAiProxyUrl() ?? url);
   console.log(
-    `[LocalAiCredentials] buildLocalAiSdkEnv userId=${userId} CLAUDE_CODE_MAX_OUTPUT_TOKENS=${maxTokens} url=${url}`,
+    `[LocalAiCredentials] buildLocalAiSdkEnv userId=${userId} CLAUDE_CODE_MAX_OUTPUT_TOKENS=${maxTokens} url=${effectiveUrl}`,
   );
   return {
-    ANTHROPIC_BASE_URL: url,
+    ANTHROPIC_BASE_URL: effectiveUrl,
     ANTHROPIC_API_KEY: 'local-ai',
     ANTHROPIC_AUTH_TOKEN: undefined,
     HOME: process.env.HOME,

@@ -1,6 +1,7 @@
 import { Pencil, Trash2, Shield, User } from 'lucide-react';
 import { Button } from '../ui/button';
 import type { AdminUserListItem } from '../../../shared/api/admin';
+import { parseSqliteUTC } from '../../utils/date';
 
 export interface UserListProps {
   users: AdminUserListItem[];
@@ -58,7 +59,7 @@ function UserList({ users, onEdit, onDelete, currentUserId, isDeleting }: UserLi
                 </span>
               </td>
               <td className="py-3 px-4 text-muted-foreground">
-                {user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}
+                {user.created_at ? parseSqliteUTC(user.created_at).toLocaleDateString() : '-'}
               </td>
               <td className="py-3 px-4">
                 <div className="flex items-center justify-end gap-1">

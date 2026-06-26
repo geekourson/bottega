@@ -5,11 +5,12 @@
  * Backend handles agent execution and auto-chaining (implementation <-> review loop).
  */
 
-import React, { useState, type ComponentType } from 'react';
-import { Play, Check, Loader2, FileText, Code, CheckCircle, MessageCircle, AlertCircle, GitPullRequest, Sparkles, Zap, Palette } from 'lucide-react';
+import React, { useState, useEffect, type ComponentType } from 'react';
+import { Play, Check, Loader2, FileText, Code, CheckCircle, MessageCircle, AlertCircle, GitPullRequest, Sparkles, Zap, Palette, Clock } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import type { AgentRunRow, AgentType } from '../../shared/types/db';
+import { parseSqliteUTC } from '../utils/date';
 
 type IconComponent = ComponentType<{ className?: string | undefined }>;
 
@@ -77,6 +78,14 @@ interface AgentSectionProps {
   className?: string | undefined;
 }
 
+function formatDuration(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
 function AgentSection({
   agentRuns = [],
   isLoading = false,
@@ -93,6 +102,34 @@ function AgentSection({
     return true;
   });
   const [runningType, setRunningType] = useState<AgentType | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const hasLive = agentRuns.some(r => r.status === 'running' || r.status === 'pending');
+    if (!hasLive) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [agentRuns]);
+
+  // Sum durations across ALL runs of an agent type (handles loops).
+  // Uses `now` as the end time for currently-running runs.
+  const getTotalDuration = (agentType: AgentType): number | null => {
+    const runs = agentRuns.filter(r => r.agent_type === agentType);
+    if (runs.length === 0) return null;
+    let total = 0;
+    let hasAny = false;
+    for (const run of runs) {
+      const start = parseSqliteUTC(run.created_at).getTime();
+      const end = run.completed_at
+        ? parseSqliteUTC(run.completed_at).getTime()
+        : (run.status === 'running' || run.status === 'pending') ? now : null;
+      if (end !== null) {
+        total += end - start;
+        hasAny = true;
+      }
+    }
+    return hasAny ? total : null;
+  };
 
   const handleRunAgent = async (agentConfig: AgentConfig) => {
     if (runningType) return; // Prevent double-click
@@ -165,6 +202,7 @@ function AgentSection({
           const isInProgress = status === 'running' || status === 'pending';
           const hasConversation = !!agentRun?.conversation_id;
           const Icon = agent.icon;
+          const totalDurationMs = getTotalDuration(agent.type);
 
           return (
             <div
@@ -205,6 +243,12 @@ function AgentSection({
                 <div>
                   <p className="text-sm font-medium">{agent.label}</p>
                   <p className="text-xs text-muted-foreground">{agent.description}</p>
+                  {totalDurationMs !== null && (
+                    <p className="flex items-center gap-1 text-xs text-muted-foreground/70 mt-0.5">
+                      <Clock className="w-3 h-3" />
+                      {formatDuration(totalDurationMs)}
+                    </p>
+                  )}
                 </div>
               </div>
 

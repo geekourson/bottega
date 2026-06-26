@@ -20,6 +20,7 @@ export function LocalAiAuthPanel() {
   const [contextWindowValue, setContextWindowValue] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
+  const [proxyToggling, setProxyToggling] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -115,6 +116,26 @@ export function LocalAiAuthPanel() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleToggleProxy = async (disable: boolean): Promise<void> => {
+    setProxyToggling(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await api.localAiAuth.setDisableProxy(disable);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(body.error ?? `Failed to update proxy setting (HTTP ${res.status})`);
+        return;
+      }
+      setInfo(disable ? 'Preflight proxy disabled — requests go directly to LM Studio.' : 'Preflight proxy enabled.');
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setProxyToggling(false);
     }
   };
 
@@ -332,6 +353,28 @@ export function LocalAiAuthPanel() {
           old conversation history on resume to stay under this limit — set it too high and
           you'll see "exceeds the available context size" errors again.
         </p>
+      </div>
+
+      <div className="flex items-start gap-3 py-2">
+        <input
+          id="local-ai-disable-proxy"
+          type="checkbox"
+          checked={status?.disableProxy ?? false}
+          disabled={loading || submitting || proxyToggling}
+          onChange={(e) => void handleToggleProxy(e.target.checked)}
+          className="mt-0.5 h-4 w-4 cursor-pointer accent-primary"
+          data-testid="local-ai-disable-proxy-checkbox"
+        />
+        <label htmlFor="local-ai-disable-proxy" className="cursor-pointer select-none space-y-0.5">
+          <span className="text-sm font-medium text-foreground">
+            Disable preflight proxy
+          </span>
+          <p className="text-xs text-muted-foreground">
+            By default Bottega intercepts <code className="font-mono">max_tokens=1</code> context-size checks and
+            answers them locally to avoid loading your GPU unnecessarily. Tick this if your server
+            handles these requests without issue or if the proxy causes problems.
+          </p>
+        </label>
       </div>
 
       {error && (
