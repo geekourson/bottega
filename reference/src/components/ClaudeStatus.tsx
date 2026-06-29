@@ -6,11 +6,12 @@ export interface ClaudeStatusProps {
   status: ClaudeStatusPayload | null | undefined;
   onAbort?: () => void;
   isLoading: boolean;
+  isThinking?: boolean;
   /** Currently informational only — kept for forward-compatibility with other providers. */
   provider?: string;
 }
 
-function ClaudeStatus({ status, onAbort, isLoading, provider }: ClaudeStatusProps) {
+function ClaudeStatus({ status, onAbort, isLoading, isThinking = false, provider }: ClaudeStatusProps) {
   const providerLabel =
     provider === 'codex'
       ? 'Codex'
@@ -74,16 +75,21 @@ function ClaudeStatus({ status, onAbort, isLoading, provider }: ClaudeStatusProp
 
   return (
     <div className="w-full mb-3 sm:mb-6 animate-in slide-in-from-bottom duration-300">
-      <div className="flex items-center justify-between max-w-4xl mx-auto bg-gray-800 dark:bg-gray-900 text-white rounded-lg shadow-lg px-2.5 py-2 sm:px-4 sm:py-3 border border-gray-700 dark:border-gray-800">
+      <div className={cn(
+        'flex items-center justify-between max-w-4xl mx-auto text-white rounded-lg shadow-lg px-2.5 py-2 sm:px-4 sm:py-3 border transition-colors duration-300',
+        isThinking
+          ? 'bg-violet-900 dark:bg-violet-950 border-violet-700 dark:border-violet-800'
+          : 'bg-gray-800 dark:bg-gray-900 border-gray-700 dark:border-gray-800',
+      )}>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 sm:gap-3">
             {/* Animated spinner */}
             <span
               className={cn(
                 'text-base sm:text-xl transition-all duration-500 flex-shrink-0',
-                animationPhase % 2 === 0
-                  ? 'text-blue-400 scale-110'
-                  : 'text-blue-300',
+                isThinking
+                  ? animationPhase % 2 === 0 ? 'text-violet-300 scale-110' : 'text-violet-400'
+                  : animationPhase % 2 === 0 ? 'text-blue-400 scale-110' : 'text-blue-300',
               )}
             >
               {currentSpinner}
@@ -93,7 +99,7 @@ function ClaudeStatus({ status, onAbort, isLoading, provider }: ClaudeStatusProp
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <span className="font-medium text-xs sm:text-sm truncate">
-                  {providerLabel} {(statusText ?? 'thinking').toLowerCase()}...
+                  {isThinking ? `${providerLabel} thinking...` : `${providerLabel} ${(statusText ?? 'thinking').toLowerCase()}...`}
                 </span>
                 <span className="text-gray-400 text-xs sm:text-sm flex-shrink-0">
                   ({elapsedTime}s)

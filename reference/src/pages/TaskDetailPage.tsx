@@ -282,13 +282,10 @@ function TaskDetailPage() {
         return;
       }
 
-      const newRun = await response.json() as { conversation_id?: number | null };
+      await response.json();
       await loadAgentRuns(task.id);
       await loadConversations(task.id);
       toast.success(`${agentType.charAt(0).toUpperCase() + agentType.slice(1)} agent started`);
-      if (newRun.conversation_id) {
-        navigate(`/projects/${projectId}/tasks/${taskId}/chat/${newRun.conversation_id}`);
-      }
     } catch (err) {
       console.error('Error starting agent:', err);
       toast.error(`Failed to start agent: ${(err as Error).message}`);

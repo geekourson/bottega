@@ -119,6 +119,7 @@ function AgentSection({
     let total = 0;
     let hasAny = false;
     for (const run of runs) {
+      if (!run.created_at) continue;
       const start = parseSqliteUTC(run.created_at).getTime();
       const end = run.completed_at
         ? parseSqliteUTC(run.completed_at).getTime()

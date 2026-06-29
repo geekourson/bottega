@@ -304,6 +304,7 @@ function ChatInterface({
     setStreamingMessages,
     isStreaming,
     setIsStreaming,
+    isThinking,
     isSending,
     setIsSending,
     claudeStatus,
@@ -931,6 +932,7 @@ function ChatInterface({
       <ClaudeStatus
         status={claudeStatus}
         isLoading={isSending || isStreaming}
+        isThinking={isThinking}
         onAbort={handleAbortSession}
         provider={
           activeConversation?.provider === 'openai'

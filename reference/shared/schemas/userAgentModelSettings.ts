@@ -20,8 +20,8 @@ const AgentModelSettingSchema = z
     provider: z.enum(['anthropic', 'openai', 'opencode', 'ollama', 'local-ai']),
     model: z.string().min(1),
     effort: z.string().nullable(),
+    instanceUrl: z.string().nullable().optional(),
   })
-  .strict()
   .superRefine((s, ctx) => {
     if (!isModelForProvider(s.provider, s.model)) {
       ctx.addIssue({

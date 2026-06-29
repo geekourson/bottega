@@ -59,6 +59,8 @@ export interface AgentRunSummary {
   status: AgentRunStatus;
   agent_type: AgentType;
   conversation_id: ConversationId | null;
+  created_at: string;
+  completed_at: string | null;
 }
 
 export interface ClaudeStatusPayload {
@@ -222,6 +224,12 @@ export type ServerToClientMessage =
       taskId: TaskId;
       /** 1-based position in the local GPU queue. */
       position: number;
+    }
+  // ---- Thinking state ----
+  | {
+      type: 'agent-thinking';
+      conversationId: ConversationId;
+      isThinking: boolean;
     }
   // ---- Context usage ----
   //

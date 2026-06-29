@@ -59,3 +59,25 @@ export interface LocalAiModelEntry {
 export interface LocalAiModelsResponse {
   models: LocalAiModelEntry[];
 }
+
+export interface LocalAiInstanceEntry {
+  url: string;
+}
+
+export interface GetLocalAiInstancesResponse {
+  instances: LocalAiInstanceEntry[];
+}
+
+export interface AddLocalAiInstanceRequest {
+  url: string;
+}
+
+export interface AddLocalAiInstanceResponse {
+  ok: true;
+  instances: LocalAiInstanceEntry[];
+}
+
+export interface DeleteLocalAiInstanceResponse {
+  ok: true;
+  instances: LocalAiInstanceEntry[];
+}

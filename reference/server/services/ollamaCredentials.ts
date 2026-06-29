@@ -14,6 +14,7 @@
 import { promises as fs, readFileSync } from 'fs';
 import path from 'path';
 import os from 'os';
+import { ollamaPool } from './instancePool.js';
 
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 const DEFAULT_MAX_OUTPUT_TOKENS = 64000;
@@ -114,6 +115,61 @@ export async function writeOllamaContextWindow(
   await fs.writeFile(filePath, String(tokens), { mode: 0o600 });
 }
 
+function resolveInstancesFilePath(userId: number | string | undefined): string {
+  return path.join(resolveUserDir(userId), 'ollama-instances.json');
+}
+
+export interface OllamaInstance {
+  url: string;
+}
+
+export function readOllamaInstances(userId: number | string | undefined): OllamaInstance[] {
+  const filePath = resolveInstancesFilePath(userId);
+  try {
+    const raw = readFileSync(filePath, 'utf8').trim();
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      // File exists (even if empty) — use its content, no migration.
+      return (parsed as OllamaInstance[]).filter((e) => typeof e?.url === 'string' && e.url.length > 0);
+    }
+  } catch {
+    // File absent → fall through to legacy single-URL migration.
+  }
+  // Migration: old single-URL file → treat as one instance.
+  const { url } = readOllamaUrl(userId);
+  return [{ url }];
+}
+
+export async function writeOllamaInstances(
+  userId: number | string | undefined,
+  instances: OllamaInstance[],
+): Promise<void> {
+  const filePath = resolveInstancesFilePath(userId);
+  await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  await fs.writeFile(filePath, JSON.stringify(instances, null, 2), { mode: 0o600 });
+  // Sync pool and queue.
+  const { ollamaGpuQueue } = await import('./localGpuQueue.js');
+  ollamaPool.setInstances(instances.map((i) => i.url));
+  ollamaGpuQueue.setMaxConcurrent(Math.max(1, instances.length));
+}
+
+export async function deleteOllamaInstance(
+  userId: number | string | undefined,
+  url: string,
+): Promise<void> {
+  const current = readOllamaInstances(userId);
+  const next = current.filter((i) => i.url !== url);
+  await writeOllamaInstances(userId, next);
+}
+
+export function initOllamaPool(userId: number | string | undefined): void {
+  const instances = readOllamaInstances(userId);
+  import('./localGpuQueue.js').then(({ ollamaGpuQueue }) => {
+    ollamaPool.setInstances(instances.map((i) => i.url));
+    ollamaGpuQueue.setMaxConcurrent(Math.max(1, instances.length));
+  }).catch(() => {});
+}
+
 export async function clearOllamaUrl(
   userId: number | string | undefined,
 ): Promise<boolean> {
@@ -139,7 +195,10 @@ export interface OllamaAuthStatus {
 export async function getOllamaAuthStatus(
   userId: number | string | undefined,
 ): Promise<OllamaAuthStatus> {
-  const { url, urlPath } = readOllamaUrl(userId);
+  // Ping the first configured instance; fall back to legacy URL if none.
+  const instances = readOllamaInstances(userId);
+  const { urlPath } = readOllamaUrl(userId);
+  const url = instances[0]?.url ?? readOllamaUrl(userId).url;
   const maxOutputTokens = readOllamaMaxTokens(userId);
   const contextWindowTokens = readOllamaContextWindow(userId);
   try {
@@ -174,29 +233,20 @@ export async function getOllamaAuthStatus(
 
 export function buildOllamaSdkEnv(
   userId: number | string | undefined,
+  assignedUrl?: string,
 ): Record<string, string | undefined> {
-  const { url } = readOllamaUrl(userId);
+  const { url: defaultUrl } = readOllamaUrl(userId);
   const maxTokens = readOllamaMaxTokens(userId);
+  const effectiveUrl = assignedUrl ?? defaultUrl;
   console.log(
-    `[OllamaCredentials] buildOllamaSdkEnv userId=${userId} CLAUDE_CODE_MAX_OUTPUT_TOKENS=${maxTokens} url=${url}`,
+    `[OllamaCredentials] buildOllamaSdkEnv userId=${userId} CLAUDE_CODE_MAX_OUTPUT_TOKENS=${maxTokens} url=${effectiveUrl}`,
   );
   return {
-    ANTHROPIC_BASE_URL: url,
-    // Claude CLI requires a non-empty API key even when routing to Ollama.
-    // Ollama ignores the value; using 'ollama' as a conventional placeholder.
+    ANTHROPIC_BASE_URL: effectiveUrl,
     ANTHROPIC_API_KEY: 'ollama',
-    // Unset the auth token so the CLI relies solely on ANTHROPIC_API_KEY.
     ANTHROPIC_AUTH_TOKEN: undefined,
-    // The SDK uses options.env verbatim (no merge with process.env) when
-    // the caller provides an env object. Without HOME and PATH, third-party
-    // hooks (e.g. GitKraken gk cli) cannot find their config directories and
-    // panic with exit_code 2 — which the Claude CLI interprets as
-    // "abort session", killing the subprocess before any prompt is delivered.
     HOME: process.env.HOME,
     PATH: process.env.PATH,
-    // Ollama models can produce longer outputs than Anthropic models.
-    // The default 32 000-token cap causes "response exceeded maximum" errors.
-    // The value is configurable per-user via Settings → Providers → Ollama.
     CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxTokens),
   };
 }
@@ -213,7 +263,8 @@ export interface OllamaModelEntry {
 export async function listOllamaModels(
   userId: number | string | undefined,
 ): Promise<OllamaModelEntry[]> {
-  const { url } = readOllamaUrl(userId);
+  const instances = readOllamaInstances(userId);
+  const url = instances[0]?.url ?? readOllamaUrl(userId).url;
   const res = await fetch(`${url}/api/tags`, {
     signal: AbortSignal.timeout(5000),
   });

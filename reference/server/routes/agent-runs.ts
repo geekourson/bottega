@@ -119,26 +119,30 @@ router.post(
 
       // Sequential mode: if the user's provider for this agent type is local
       // (ollama/local-ai) and another task is already running, queue this run.
+      // When an explicit instanceUrl is assigned, the agent has its own dedicated
+      // resource → no queue needed.
       const userSettings = loadAgentModelSettings(userId);
-      const agentProvider = userSettings[agentType as keyof typeof userSettings]?.provider
-        ?? userSettings.implementation.provider;
-      const sequentialMode = localGpuQueue.isLocalProvider(agentProvider);
+      const agentSetting = userSettings[agentType as keyof typeof userSettings];
+      const agentProvider = agentSetting?.provider ?? userSettings.implementation.provider;
+      const agentInstanceUrl = agentSetting?.instanceUrl ?? null;
+      const sequentialMode = localGpuQueue.isLocalProvider(agentProvider) && !agentInstanceUrl;
+      const queue = sequentialMode ? localGpuQueue.for(agentProvider) : null;
 
-      if (sequentialMode && !localGpuQueue.canRunNow(taskId)) {
-        localGpuQueue.enqueue({ taskId, agentType, options: runOptions });
-        const position = localGpuQueue.getQueueLength();
+      if (queue && !queue.canRunNow(taskId)) {
+        queue.enqueue({ taskId, agentType, options: runOptions });
+        const position = queue.getQueueLength();
         broadcastToTaskSubscribersFn?.(taskId, { type: 'task-queued', position });
         return res.status(202).json({ queued: true, taskId, agentType, position });
       }
 
-      if (sequentialMode) localGpuQueue.setActive(taskId);
+      if (queue) queue.setActive(taskId);
 
       let agentRun;
       try {
         ({ agentRun } = await startAgentRun(taskId, agentType, runOptions));
       } catch (startError) {
         // Release queue slot on start failure so queued tasks aren't stuck.
-        if (sequentialMode) localGpuQueue.release(taskId);
+        if (queue) queue.release(taskId);
         throw startError;
       }
 
@@ -210,7 +214,10 @@ router.post(
       // GPU provider (ollama or local-ai). Tasks are started one at a time; the
       // rest are queued and started automatically as each task completes or blocks.
       const userSettings = loadAgentModelSettings(userId);
-      const sequentialMode = localGpuQueue.isLocalProvider(userSettings.implementation.provider);
+      const implProvider = userSettings.implementation.provider;
+      const queue = localGpuQueue.isLocalProvider(implProvider)
+        ? localGpuQueue.for(implProvider)
+        : null;
 
       for (const task of pendingTasks) {
         if (getRunningAgentForTask(task.id)) {
@@ -223,17 +230,17 @@ router.post(
         const agentType: AgentType = task.yolo_mode ? 'yolo' : 'planification';
         const runOptions = { broadcastFn, broadcastToTaskSubscribersFn, userId };
 
-        if (sequentialMode && !localGpuQueue.canRunNow(task.id)) {
+        if (queue && !queue.canRunNow(task.id)) {
           // GPU is busy with another task — queue this one for later.
-          localGpuQueue.enqueue({ taskId: task.id, agentType, options: runOptions });
-          const position = localGpuQueue.getQueueLength();
+          queue.enqueue({ taskId: task.id, agentType, options: runOptions });
+          const position = queue.getQueueLength();
           broadcastToTaskSubscribersFn?.(task.id, { type: 'task-queued', position });
           queued.push({ taskId: task.id, agentType });
           continue;
         }
 
         try {
-          if (sequentialMode) localGpuQueue.setActive(task.id);
+          if (queue) queue.setActive(task.id);
           const { agentRun } = await startAgentRun(task.id, agentType, runOptions);
           started.push({ taskId: task.id, agentType, agentRunId: agentRun.id });
         } catch (error) {
@@ -243,7 +250,7 @@ router.post(
             throw error;
           }
           // Release the slot on error so queued tasks can continue.
-          if (sequentialMode) localGpuQueue.release(task.id);
+          if (queue) queue.release(task.id);
           const msg = error instanceof Error ? error.message : String(error);
           console.error(`Error starting agent for task ${task.id}:`, msg);
           skipped.push({ taskId: task.id, reason: msg });

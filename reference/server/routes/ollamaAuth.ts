@@ -16,6 +16,9 @@ import {
   writeOllamaUrl,
   writeOllamaMaxTokens,
   writeOllamaContextWindow,
+  readOllamaInstances,
+  writeOllamaInstances,
+  deleteOllamaInstance,
 } from '../services/ollamaCredentials.js';
 import { seedAgentSettingsAfterConnect } from '../services/agentModelSettings.js';
 import type {
@@ -25,6 +28,9 @@ import type {
   SetOllamaUrlResponse,
   SetOllamaMaxTokensResponse,
   SetOllamaContextWindowResponse,
+  GetOllamaInstancesResponse,
+  AddOllamaInstanceResponse,
+  DeleteOllamaInstanceResponse,
 } from '../../shared/api/ollamaAuth.js';
 import type { ApiError } from '../../shared/api/_common.js';
 
@@ -158,6 +164,52 @@ router.get(
       }
       const models = await listOllamaModels(userId);
       res.json({ models });
+    } catch (error) {
+      authErrorResponse(res as Response<OllamaAuthErrorBody | ApiError>, error);
+    }
+  },
+);
+
+router.get(
+  '/instances',
+  (req: Request, res: Response<GetOllamaInstancesResponse | OllamaAuthErrorBody>) => {
+    const instances = readOllamaInstances(req.user!.id);
+    res.json({ instances });
+  },
+);
+
+router.post(
+  '/instances',
+  async (req: Request, res: Response<AddOllamaInstanceResponse | OllamaAuthErrorBody>) => {
+    const body = req.body as { url?: unknown };
+    const url = typeof body.url === 'string' ? body.url.trim() : '';
+    if (!url) {
+      return res.status(400).json({ error: 'url is required', code: 'OLLAMA_AUTH_INVALID_PAYLOAD' });
+    }
+    try {
+      const current = readOllamaInstances(req.user!.id);
+      if (current.some((i) => i.url === url)) {
+        return res.status(409).json({ error: 'Instance already exists', code: 'OLLAMA_AUTH_INVALID_PAYLOAD' });
+      }
+      await writeOllamaInstances(req.user!.id, [...current, { url }]);
+      res.status(201).json({ ok: true, instances: readOllamaInstances(req.user!.id) });
+    } catch (error) {
+      authErrorResponse(res as Response<OllamaAuthErrorBody | ApiError>, error);
+    }
+  },
+);
+
+router.delete(
+  '/instances',
+  async (req: Request, res: Response<DeleteOllamaInstanceResponse | OllamaAuthErrorBody>) => {
+    const body = req.body as { url?: unknown };
+    const url = typeof body.url === 'string' ? body.url.trim() : '';
+    if (!url) {
+      return res.status(400).json({ error: 'url is required', code: 'OLLAMA_AUTH_INVALID_PAYLOAD' });
+    }
+    try {
+      await deleteOllamaInstance(req.user!.id, url);
+      res.json({ ok: true, instances: readOllamaInstances(req.user!.id) });
     } catch (error) {
       authErrorResponse(res as Response<OllamaAuthErrorBody | ApiError>, error);
     }

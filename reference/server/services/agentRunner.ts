@@ -148,7 +148,7 @@ export async function startAgentRun(
     throw new Error(`Cannot start agent run for task ${taskId}: no acting user to resolve agent model settings`);
   }
   const agentSettings = loadAgentModelSettings(effectiveUserId)[agentType];
-  const { provider, model, effort } = agentSettings;
+  const { provider, model, effort, instanceUrl } = agentSettings;
 
   // Fail closed if the user has no credentials for the configured
   // provider. Surfaces as a typed ProviderCredentialsMissingError so
@@ -221,6 +221,8 @@ export async function startAgentRun(
         status: 'running',
         agent_type: agentType,
         conversation_id: conversation.id,
+        created_at: agentRun.created_at,
+        completed_at: null,
       },
     });
   }
@@ -261,7 +263,9 @@ export async function startAgentRun(
     conversationId: conversation.id,
     provider,
     model,
+    projectPath: effectivePath,
     ...(effort !== null ? { effort } : {}),
+    ...(instanceUrl != null ? { instanceUrl } : {}),
     disallowedTools,
     videoConfig: videoConfig,
   });

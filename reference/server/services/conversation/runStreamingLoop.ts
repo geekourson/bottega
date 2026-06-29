@@ -112,6 +112,8 @@ export async function runStreamingLoop({
   let sessionCreatedBroadcast = false;
   let resultObserved = false;
   let authError = false;
+  let isThinkingActive = false;
+  let thinkingBlockIndex = -1;
   // True when the SDK's final `result` message for this turn reports
   // `is_error: true` for a reason other than the in-band 401 (handled
   // separately above via `authError`/the retry path). On current SDK
@@ -127,6 +129,18 @@ export async function runStreamingLoop({
   try {
     for await (const sdkMessage of queryInstance) {
       if (sdkMessage.type === 'stream_event') {
+        const ev = sdkMessage.event as { type?: string; index?: number; content_block?: { type?: string } } | null | undefined;
+        if (ev?.type === 'content_block_start' && ev.content_block?.type === 'thinking') {
+          thinkingBlockIndex = ev.index ?? -1;
+          if (!isThinkingActive) {
+            isThinkingActive = true;
+            broadcastFn?.(conversationId, { type: 'agent-thinking', conversationId, isThinking: true });
+          }
+        } else if (ev?.type === 'content_block_stop' && ev.index === thinkingBlockIndex && isThinkingActive) {
+          isThinkingActive = false;
+          thinkingBlockIndex = -1;
+          broadcastFn?.(conversationId, { type: 'agent-thinking', conversationId, isThinking: false });
+        }
         thinkingAcc.handleStreamEvent(sdkMessage.event as Parameters<ThinkingAccumulator['handleStreamEvent']>[0]);
         continue;
       }
@@ -162,6 +176,11 @@ export async function runStreamingLoop({
       }
 
       if (sdkMessage.type === 'assistant') {
+        if (isThinkingActive) {
+          isThinkingActive = false;
+          thinkingBlockIndex = -1;
+          broadcastFn?.(conversationId, { type: 'agent-thinking', conversationId, isThinking: false });
+        }
         thinkingAcc.patchAssistantMessage(sdkMessage);
         const parentToolUseId = (sdkMessage as { parent_tool_use_id?: string | null }).parent_tool_use_id ?? null;
         const masterModel = (sdkMessage.message as { model?: string } | undefined)?.model ?? null;

@@ -1,14 +1,13 @@
-// Sequential execution queue for local GPU providers (ollama, local-ai).
-// Only one task runs at a time. When a task completes or becomes blocked,
-// the next queued task is started automatically.
+// N-concurrent execution queue for local GPU providers (ollama, local-ai).
+// Multiple tasks can run simultaneously when multiple instances are configured.
+// When all slots are occupied, tasks queue and start automatically when a slot frees.
 //
-// Re-entrant: the same task can call setActive() multiple times (e.g., during
-// agent chaining implementation → review) without releasing the slot.
-// The slot is only released by an explicit release() call.
+// Re-entrant: the same task can call setActive() multiple times (agent chaining)
+// without releasing its slot.
 //
 // Two entry types share a single FIFO queue:
-//   'start'  — a new task to run (from start-pending or manual Run)
-//   'resume' — a paused task re-entering after the user answered a question
+//   'start'  — a new task to run
+//   'resume' — a paused task re-entering after AskUserQuestion
 
 import type { AgentType } from '@shared/websocket/messages';
 import type { StartAgentRunOptions } from './agentRunner.js';
@@ -23,52 +22,63 @@ type InternalEntry =
   | { kind: 'start'; taskId: number; agentType: AgentType; options: StartAgentRunOptions }
   | { kind: 'resume'; taskId: number; resolve: () => void };
 
-class LocalGpuQueue {
-  private activeTaskId: number | null = null;
+export class LocalGpuQueue {
+  private activeTasks = new Set<number>();
+  private maxConcurrent = 1;
   private queue: InternalEntry[] = [];
+
+  setMaxConcurrent(n: number): void {
+    this.maxConcurrent = Math.max(1, n);
+  }
+
+  getMaxConcurrent(): number {
+    return this.maxConcurrent;
+  }
 
   isLocalProvider(provider: string): boolean {
     return provider === 'ollama' || provider === 'local-ai';
   }
 
+  // For backward compat: returns first active task or null.
   getActiveTaskId(): number | null {
-    return this.activeTaskId;
+    const iter = this.activeTasks.values().next();
+    return iter.done ? null : iter.value;
   }
 
-  // Returns true if taskId can start immediately.
-  // Re-entrant: always true when the same task already holds the slot.
+  isActive(taskId: number): boolean {
+    return this.activeTasks.has(taskId);
+  }
+
+  // True if taskId already holds a slot, or a slot is free.
   canRunNow(taskId: number): boolean {
-    return this.activeTaskId === null || this.activeTaskId === taskId;
+    return this.activeTasks.has(taskId) || this.activeTasks.size < this.maxConcurrent;
   }
 
-  // Mark taskId as the current active task. Safe to call multiple times for
-  // the same task (e.g., during agent chaining within a task).
+  // Claim a slot for taskId. Safe to call multiple times for the same task.
   setActive(taskId: number): void {
-    this.activeTaskId = taskId;
+    this.activeTasks.add(taskId);
   }
 
-  // Enqueue a new task start. Ignores duplicate task entries.
   enqueue(entry: QueuedTask): void {
     if (!this.queue.some((e) => e.taskId === entry.taskId)) {
       this.queue.push({ kind: 'start', ...entry });
     }
   }
 
-  // Add the task to the end of the queue as a resume entry and wait until the
-  // GPU is free for it. Used when the user answers an AskUserQuestion and the
-  // GPU is busy with another task. Resolves when it's this task's turn.
+  // Add a 'resume' entry and wait until a slot is free for this task.
   waitToResume(taskId: number): Promise<void> {
     return new Promise<void>((resolve) => {
       this.queue.push({ kind: 'resume', taskId, resolve });
     });
   }
 
-  // Release the active slot. Iterates the queue, skipping entries for which
-  // isEligible returns false (moved to end). For 'resume' entries, wakes up
-  // the waiting promise and returns null. For 'start' entries, returns the
-  // QueuedTask so the caller can launch startAgentRun.
+  // Release taskId's slot. If capacity is now available, dequeues and returns
+  // the next eligible task for the caller to start via startAgentRun.
   release(taskId: number, isEligible: (taskId: number) => boolean = () => true): QueuedTask | null {
-    if (this.activeTaskId !== taskId) return null;
+    if (!this.activeTasks.has(taskId)) return null;
+    this.activeTasks.delete(taskId);
+
+    if (this.activeTasks.size >= this.maxConcurrent) return null;
 
     const initialLength = this.queue.length;
     let attempts = 0;
@@ -76,20 +86,17 @@ class LocalGpuQueue {
     while (this.queue.length > 0 && attempts < initialLength) {
       const candidate = this.queue.shift()!;
       if (isEligible(candidate.taskId)) {
-        this.activeTaskId = candidate.taskId;
+        this.activeTasks.add(candidate.taskId);
         if (candidate.kind === 'resume') {
-          // Wake up the waiting resolveAskUserQuestion — no startAgentRun needed.
           candidate.resolve();
           return null;
         }
         return { taskId: candidate.taskId, agentType: candidate.agentType, options: candidate.options };
       }
-      // Not eligible yet — move to end and try next
       this.queue.push(candidate);
       attempts++;
     }
 
-    this.activeTaskId = null;
     return null;
   }
 
@@ -102,9 +109,25 @@ class LocalGpuQueue {
   }
 
   getQueuedTaskIds(): number[] {
-    return this.queue.map((e) => e.taskId);
+    return [...new Set(this.queue.map((e) => e.taskId))];
   }
 }
 
-// Module-level singleton: one GPU queue per server process.
-export const localGpuQueue = new LocalGpuQueue();
+// Two separate queues: one per local provider.
+export const localAiGpuQueue = new LocalGpuQueue();
+export const ollamaGpuQueue = new LocalGpuQueue();
+
+// Facade kept for backward compat + convenience.
+export const localGpuQueue = {
+  isLocalProvider: (provider: string): boolean =>
+    provider === 'ollama' || provider === 'local-ai',
+  for: (provider: string): LocalGpuQueue =>
+    provider === 'ollama' ? ollamaGpuQueue : localAiGpuQueue,
+  // Combined queue length/IDs for the frontend badge.
+  getQueueLength: (): number =>
+    localAiGpuQueue.getQueueLength() + ollamaGpuQueue.getQueueLength(),
+  getQueuedTaskIds: (): number[] => [
+    ...localAiGpuQueue.getQueuedTaskIds(),
+    ...ollamaGpuQueue.getQueuedTaskIds(),
+  ],
+};

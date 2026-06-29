@@ -108,8 +108,10 @@ interface AgentModelSettingRowProps {
   isLoadingOpenCodeModels: boolean;
   ollamaModels: OllamaModelEntry[] | null;
   isLoadingOllamaModels: boolean;
+  ollamaInstances?: { url: string }[];
   localAiModels: LocalAiModelEntry[] | null;
   isLoadingLocalAiModels: boolean;
+  localAiInstances?: { url: string }[];
   disabled: boolean;
   onChange: (agent: AgentType, patch: Partial<AgentModelSetting>) => void;
 }
@@ -123,8 +125,10 @@ function AgentModelSettingRow({
   isLoadingOpenCodeModels,
   ollamaModels,
   isLoadingOllamaModels,
+  ollamaInstances = [],
   localAiModels,
   isLoadingLocalAiModels,
+  localAiInstances = [],
   disabled,
   onChange,
 }: AgentModelSettingRowProps) {
@@ -201,6 +205,27 @@ function AgentModelSettingRow({
           </select>
         </label>
       )}
+      {(providerKey === 'ollama' || providerKey === 'local-ai') && (() => {
+        const instances = providerKey === 'ollama' ? ollamaInstances : localAiInstances;
+        if (instances.length <= 1) return null;
+        return (
+          <label className="flex items-center gap-2 w-full sm:w-auto">
+            <span className="text-muted-foreground w-20 sm:w-auto shrink-0">Instance</span>
+            <select
+              value={setting.instanceUrl ?? ''}
+              onChange={(e) => onChange(agentType, { instanceUrl: e.target.value || null })}
+              disabled={disabled}
+              data-testid={`agent-instance-select-${agentType}`}
+              className="flex-1 min-w-0 sm:flex-none bg-background border border-border rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+            >
+              <option value="">Auto (round-robin)</option>
+              {instances.map((i) => (
+                <option key={i.url} value={i.url}>{i.url}</option>
+              ))}
+            </select>
+          </label>
+        );
+      })()}
     </div>
   );
 }

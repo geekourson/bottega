@@ -144,6 +144,9 @@ import type {
   SetOllamaUrlResponse,
   SetOllamaMaxTokensResponse,
   SetOllamaContextWindowResponse,
+  GetOllamaInstancesResponse,
+  AddOllamaInstanceResponse,
+  DeleteOllamaInstanceResponse,
 } from '../../shared/api/ollamaAuth';
 import type {
   LocalAiAuthStatusResponse,
@@ -153,6 +156,9 @@ import type {
   SetLocalAiMaxTokensResponse,
   SetLocalAiContextWindowResponse,
   SetLocalAiDisableProxyResponse,
+  GetLocalAiInstancesResponse,
+  AddLocalAiInstanceResponse,
+  DeleteLocalAiInstanceResponse,
 } from '../../shared/api/localAiAuth';
 import type {
   ConnectedProvidersResponse,
@@ -347,6 +353,18 @@ export const api = {
       }),
     models: (): TypedFetch<OllamaModelsResponse> =>
       authenticatedFetch<OllamaModelsResponse>('/api/ollama-auth/models'),
+    instances: (): TypedFetch<GetOllamaInstancesResponse> =>
+      authenticatedFetch<GetOllamaInstancesResponse>('/api/ollama-auth/instances'),
+    addInstance: (url: string): TypedFetch<AddOllamaInstanceResponse> =>
+      authenticatedFetch<AddOllamaInstanceResponse>('/api/ollama-auth/instances', {
+        method: 'POST',
+        body: JSON.stringify({ url }),
+      }),
+    deleteInstance: (url: string): TypedFetch<DeleteOllamaInstanceResponse> =>
+      authenticatedFetch<DeleteOllamaInstanceResponse>('/api/ollama-auth/instances', {
+        method: 'DELETE',
+        body: JSON.stringify({ url }),
+      }),
   },
 
   localAiAuth: {
@@ -377,6 +395,18 @@ export const api = {
       authenticatedFetch<SetLocalAiDisableProxyResponse>('/api/local-ai-auth/disable-proxy', {
         method: 'PUT',
         body: JSON.stringify({ disableProxy }),
+      }),
+    instances: (): TypedFetch<GetLocalAiInstancesResponse> =>
+      authenticatedFetch<GetLocalAiInstancesResponse>('/api/local-ai-auth/instances'),
+    addInstance: (url: string): TypedFetch<AddLocalAiInstanceResponse> =>
+      authenticatedFetch<AddLocalAiInstanceResponse>('/api/local-ai-auth/instances', {
+        method: 'POST',
+        body: JSON.stringify({ url }),
+      }),
+    deleteInstance: (url: string): TypedFetch<DeleteLocalAiInstanceResponse> =>
+      authenticatedFetch<DeleteLocalAiInstanceResponse>('/api/local-ai-auth/instances', {
+        method: 'DELETE',
+        body: JSON.stringify({ url }),
       }),
   },
 

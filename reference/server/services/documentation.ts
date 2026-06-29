@@ -38,6 +38,33 @@ export function getTaskInputFilesPath(projectId: number, taskId: number): string
   return path.join(getArchiveTasksFolderPath(projectId), `task-${taskId}`, INPUT_FILES_FOLDER);
 }
 
+/**
+ * Restores the task doc to its original request content after a reset.
+ * If the file contains a plan (has an "## Original Request" section), extracts
+ * the blockquote content and rewrites the file with just that. If the file has
+ * no plan yet (raw user description), leaves it untouched.
+ */
+export function resetTaskDoc(projectId: number, taskId: number): void {
+  const docPath = getTaskDocPath(projectId, taskId);
+  if (!fs.existsSync(docPath)) return;
+
+  const content = fs.readFileSync(docPath, 'utf-8');
+
+  // Split on level-2 headings to find the Original Request section
+  const parts = content.split(/\n(?=## )/);
+  const originalRequestPart = parts.find(p => p.startsWith('## Original Request'));
+  if (!originalRequestPart) return;
+
+  // Extract blockquote lines and strip the "> " prefix
+  const blockquoteLines = originalRequestPart
+    .split('\n')
+    .filter(line => line.startsWith('> ') || line === '>');
+  if (blockquoteLines.length === 0) return;
+
+  const restored = blockquoteLines.map(line => line.replace(/^> ?/, '')).join('\n').trim();
+  fs.writeFileSync(docPath, restored + '\n', 'utf-8');
+}
+
 export function getRecordingPath(projectId: number, taskId: number): string {
   return path.join(getArchiveRecordingsFolderPath(projectId), `task-${taskId}.webm`);
 }

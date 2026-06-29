@@ -39,8 +39,10 @@ function AgentModelsTab() {
   const [isLoadingOpenCodeModels, setLoadingOpenCodeModels] = useState(false);
   const [ollamaModels, setOllamaModels] = useState<OllamaModelEntry[] | null>(null);
   const [isLoadingOllamaModels, setLoadingOllamaModels] = useState(false);
+  const [ollamaInstances, setOllamaInstances] = useState<{ url: string }[]>([]);
   const [localAiModels, setLocalAiModels] = useState<LocalAiModelEntry[] | null>(null);
   const [isLoadingLocalAiModels, setLoadingLocalAiModels] = useState(false);
+  const [localAiInstances, setLocalAiInstances] = useState<{ url: string }[]>([]);
   const [isLoading, setLoading] = useState(true);
   const [isSaving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,10 +65,9 @@ function AgentModelsTab() {
   const loadOllamaModels = useCallback(async () => {
     setLoadingOllamaModels(true);
     try {
-      const res = await api.ollamaAuth.models();
-      if (!res.ok) { setOllamaModels([]); return; }
-      const body = await res.json();
-      setOllamaModels(body.models);
+      const [modelsRes, instancesRes] = await Promise.all([api.ollamaAuth.models(), api.ollamaAuth.instances()]);
+      if (!modelsRes.ok) { setOllamaModels([]); } else { const b = await modelsRes.json(); setOllamaModels(b.models); }
+      if (instancesRes.ok) { const b = await instancesRes.json() as { instances: { url: string }[] }; setOllamaInstances(b.instances); }
     } catch {
       setOllamaModels([]);
     } finally {
@@ -77,10 +78,9 @@ function AgentModelsTab() {
   const loadLocalAiModels = useCallback(async () => {
     setLoadingLocalAiModels(true);
     try {
-      const res = await api.localAiAuth.models();
-      if (!res.ok) { setLocalAiModels([]); return; }
-      const body = await res.json();
-      setLocalAiModels(body.models);
+      const [modelsRes, instancesRes] = await Promise.all([api.localAiAuth.models(), api.localAiAuth.instances()]);
+      if (!modelsRes.ok) { setLocalAiModels([]); } else { const b = await modelsRes.json(); setLocalAiModels(b.models); }
+      if (instancesRes.ok) { const b = await instancesRes.json() as { instances: { url: string }[] }; setLocalAiInstances(b.instances); }
     } catch {
       setLocalAiModels([]);
     } finally {
@@ -131,6 +131,9 @@ function AgentModelsTab() {
       let merged: AgentModelSetting;
       if (patch.provider && patch.provider !== current.provider) {
         const p = patch.provider;
+        // For live-catalog providers, trigger load if not started yet.
+        if (p === 'ollama' && ollamaModels === null && !isLoadingOllamaModels) void loadOllamaModels();
+        if (p === 'local-ai' && localAiModels === null && !isLoadingLocalAiModels) void loadLocalAiModels();
         const nextModel =
           p === 'opencode'
             ? (openCodeModels?.[0]?.id ?? null)
@@ -140,20 +143,32 @@ function AgentModelsTab() {
                 ? (localAiModels?.[0]?.id ?? null)
                 : ((MODELS_FOR_UI[p] as readonly string[])[0] ?? null);
         if (nextModel === null) {
-          if (p === 'ollama') {
-            setError(
-              'No Ollama models found. Make sure Ollama is running and you have pulled at least one model ' +
-                '(`ollama pull llama3.2`). Connect Ollama in Settings → Providers, then try again.',
-            );
-          } else {
-            setError(
-              'OpenCode catalog is still loading or no Zen key is configured. ' +
-                'Connect OpenCode in Settings → Providers, then try again.',
-            );
+          // If still loading, don't block — the model dropdown will populate once ready.
+          const stillLoading =
+            (p === 'opencode' && isLoadingOpenCodeModels) ||
+            (p === 'ollama' && isLoadingOllamaModels) ||
+            (p === 'local-ai' && isLoadingLocalAiModels);
+          if (!stillLoading) {
+            if (p === 'ollama') {
+              setError(
+                'No Ollama models found. Make sure Ollama is running and you have pulled at least one model ' +
+                  '(`ollama pull llama3.2`). Connect Ollama in Settings → Providers, then try again.',
+              );
+            } else if (p === 'local-ai') {
+              setError(
+                'No Local AI models found. Make sure your local server is running and has at least one model loaded. ' +
+                  'Connect Local AI in Settings → Providers, then try again.',
+              );
+            } else {
+              setError(
+                'OpenCode catalog is still loading or no Zen key is configured. ' +
+                  'Connect OpenCode in Settings → Providers, then try again.',
+              );
+            }
+            return;
           }
-          return;
         }
-        merged = { provider: p, model: nextModel, effort: ((EFFORTS_FOR_UI[p] as readonly string[])[0] ?? null) };
+        merged = { provider: p, model: nextModel ?? '', effort: ((EFFORTS_FOR_UI[p] as readonly string[])[0] ?? null), instanceUrl: null };
       } else {
         merged = { ...current, ...patch };
       }
@@ -243,8 +258,10 @@ function AgentModelsTab() {
             isLoadingOpenCodeModels={isLoadingOpenCodeModels}
             ollamaModels={ollamaModels}
             isLoadingOllamaModels={isLoadingOllamaModels}
+            ollamaInstances={ollamaInstances}
             localAiModels={localAiModels}
             isLoadingLocalAiModels={isLoadingLocalAiModels}
+            localAiInstances={localAiInstances}
             disabled={isSaving}
             onChange={updateAgentSetting}
           />

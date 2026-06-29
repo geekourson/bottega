@@ -17,6 +17,9 @@ import {
   writeLocalAiMaxTokens,
   writeLocalAiContextWindow,
   writeLocalAiDisableProxy,
+  readLocalAiInstances,
+  writeLocalAiInstances,
+  deleteLocalAiInstance,
 } from '../services/localAiCredentials.js';
 import { seedAgentSettingsAfterConnect } from '../services/agentModelSettings.js';
 import type {
@@ -27,6 +30,9 @@ import type {
   SetLocalAiMaxTokensResponse,
   SetLocalAiContextWindowResponse,
   SetLocalAiDisableProxyResponse,
+  GetLocalAiInstancesResponse,
+  AddLocalAiInstanceResponse,
+  DeleteLocalAiInstanceResponse,
 } from '../../shared/api/localAiAuth.js';
 import type { ApiError } from '../../shared/api/_common.js';
 
@@ -179,6 +185,52 @@ router.get(
       }
       const models = await listLocalAiModels(userId);
       res.json({ models });
+    } catch (error) {
+      authErrorResponse(res as Response<LocalAiAuthErrorBody | ApiError>, error);
+    }
+  },
+);
+
+router.get(
+  '/instances',
+  (req: Request, res: Response<GetLocalAiInstancesResponse | LocalAiAuthErrorBody>) => {
+    const instances = readLocalAiInstances(req.user!.id);
+    res.json({ instances });
+  },
+);
+
+router.post(
+  '/instances',
+  async (req: Request, res: Response<AddLocalAiInstanceResponse | LocalAiAuthErrorBody>) => {
+    const body = req.body as { url?: unknown };
+    const url = typeof body.url === 'string' ? body.url.trim() : '';
+    if (!url) {
+      return res.status(400).json({ error: 'url is required', code: 'LOCAL_AI_AUTH_INVALID_PAYLOAD' });
+    }
+    try {
+      const current = readLocalAiInstances(req.user!.id);
+      if (current.some((i) => i.url === url)) {
+        return res.status(409).json({ error: 'Instance already exists', code: 'LOCAL_AI_AUTH_INVALID_PAYLOAD' });
+      }
+      await writeLocalAiInstances(req.user!.id, [...current, { url }]);
+      res.status(201).json({ ok: true, instances: readLocalAiInstances(req.user!.id) });
+    } catch (error) {
+      authErrorResponse(res as Response<LocalAiAuthErrorBody | ApiError>, error);
+    }
+  },
+);
+
+router.delete(
+  '/instances',
+  async (req: Request, res: Response<DeleteLocalAiInstanceResponse | LocalAiAuthErrorBody>) => {
+    const body = req.body as { url?: unknown };
+    const url = typeof body.url === 'string' ? body.url.trim() : '';
+    if (!url) {
+      return res.status(400).json({ error: 'url is required', code: 'LOCAL_AI_AUTH_INVALID_PAYLOAD' });
+    }
+    try {
+      await deleteLocalAiInstance(req.user!.id, url);
+      res.json({ ok: true, instances: readLocalAiInstances(req.user!.id) });
     } catch (error) {
       authErrorResponse(res as Response<LocalAiAuthErrorBody | ApiError>, error);
     }

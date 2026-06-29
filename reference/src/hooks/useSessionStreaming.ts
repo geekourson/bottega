@@ -53,6 +53,7 @@ export interface UseSessionStreamingResult {
   >;
   isStreaming: boolean;
   setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>;
+  isThinking: boolean;
   isSending: boolean;
   setIsSending: React.Dispatch<React.SetStateAction<boolean>>;
   claudeStatus: ClaudeStatusPayload | null;
@@ -170,6 +171,7 @@ export function useSessionStreaming({
     StreamingDisplayMessage[]
   >([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [claudeStatus, setClaudeStatus] = useState<ClaudeStatusPayload | null>(
     null,
@@ -333,7 +335,7 @@ export function useSessionStreaming({
       handleClaudeStatusMsg(msg);
     // streaming-ended/streaming-started reflect SDK turn lifecycle; mirror them
     // into the chat-level isStreaming for the "Claude is responding..." UI.
-    const handleStreamingEnded = () => setIsStreaming(false);
+    const handleStreamingEnded = () => { setIsStreaming(false); setIsThinking(false); };
     const handleStreamingStarted = () => setIsStreaming(true);
     // AskUserQuestion parks the SDK turn on canUseTool — the server emits
     // awaiting-user-answer with the questions/toolId. Hide the streaming
@@ -341,8 +343,12 @@ export function useSessionStreaming({
     // submit, the server emits streaming-started again as the SDK resumes.
     const handleAwaitingUserAnswer = () => {
       setIsStreaming(false);
+      setIsThinking(false);
       setIsSending(false);
       setClaudeStatus(null);
+    };
+    const handleAgentThinking = (msg: ServerMessageOf<'agent-thinking'>) => {
+      setIsThinking(msg.isThinking);
     };
 
     subscribe('claude-response', handleResponse);
@@ -355,6 +361,7 @@ export function useSessionStreaming({
     subscribe('streaming-ended', handleStreamingEnded);
     subscribe('streaming-started', handleStreamingStarted);
     subscribe('awaiting-user-answer', handleAwaitingUserAnswer);
+    subscribe('agent-thinking', handleAgentThinking);
 
     return () => {
       unsubscribe('claude-response', handleResponse);
@@ -367,6 +374,7 @@ export function useSessionStreaming({
       unsubscribe('streaming-ended', handleStreamingEnded);
       unsubscribe('streaming-started', handleStreamingStarted);
       unsubscribe('awaiting-user-answer', handleAwaitingUserAnswer);
+      unsubscribe('agent-thinking', handleAgentThinking);
     };
   }, [
     selectedSession?.id,
@@ -415,6 +423,7 @@ export function useSessionStreaming({
     setStreamingMessages,
     isStreaming,
     setIsStreaming,
+    isThinking,
     isSending,
     setIsSending,
     claudeStatus,

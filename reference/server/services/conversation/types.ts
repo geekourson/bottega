@@ -49,9 +49,17 @@ export interface ConversationOptions {
    */
   model?: string | undefined;
   effort?: string | null | undefined;
+  /** Explicit instance URL for ollama/local-ai. Skips pool.acquire when set. */
+  instanceUrl?: string | null | undefined;
   disallowedTools?: string[] | undefined;
   askUserQuestionToolResult?: AskUserQuestionToolResult | undefined;
   videoConfig?: VideoConfig | null | undefined;
+  /**
+   * Explicit project path (worktree or repo root) to use as the SDK cwd.
+   * When set by agentRunner, skips the worktreeExists re-check in
+   * startConversation and avoids a race between the two lookups.
+   */
+  projectPath?: string | undefined;
   /**
    * Internal: set when this call is the automatic single retry after a 401
    * subprocess-auth failure (see `retryOn401.ts`). External callers must not

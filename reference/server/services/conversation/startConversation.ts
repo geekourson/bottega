@@ -49,11 +49,12 @@ import {
   startOpenCodeConversation,
   sendOpenCodeMessage,
 } from './startOpenCodeConversation.js';
-import { buildOllamaSdkEnv, readOllamaContextWindow } from '../ollamaCredentials.js';
+import { buildOllamaSdkEnv, readOllamaContextWindow, readOllamaUrl, readOllamaInstances } from '../ollamaCredentials.js';
 import { parseOllamaModel } from '../providers/ollama/index.js';
-import { buildLocalAiSdkEnv, readLocalAiContextWindow, readLocalAiUrl, readLocalAiDisableProxy } from '../localAiCredentials.js';
+import { buildLocalAiSdkEnv, readLocalAiContextWindow, readLocalAiUrl, readLocalAiDisableProxy, readLocalAiInstances } from '../localAiCredentials.js';
 import { parseLocalAiModel } from '../providers/local-ai/index.js';
 import { ensureLocalAiProxy } from '../localAiProxy.js';
+import { localAiPool, ollamaPool } from '../instancePool.js';
 import { sqliteSessionStore, createTruncatingSessionStore } from '../sqliteSessionStore.js';
 import type { ConversationOptions, StreamingContext } from './types.js';
 
@@ -116,11 +117,16 @@ export async function startConversation(
     throw new Error(`Task ${taskId} not found`);
   }
 
-  let projectPath = taskWithProject.repo_folder_path;
-
-  // Use worktree path if one exists for this task.
-  if (await worktreeExists(projectPath, taskId)) {
-    projectPath = getWorktreeProjectPath(projectPath, taskId, taskWithProject.subproject_path);
+  // Prefer the caller-supplied path (agentRunner resolves the worktree once
+  // before calling us, so we don't re-check and risk a race).
+  let projectPath: string;
+  if (options.projectPath) {
+    projectPath = options.projectPath;
+  } else {
+    projectPath = taskWithProject.repo_folder_path;
+    if (await worktreeExists(projectPath, taskId)) {
+      projectPath = getWorktreeProjectPath(projectPath, taskId, taskWithProject.subproject_path);
+    }
   }
 
   const isOllama = options.provider === 'ollama';
@@ -129,12 +135,27 @@ export async function startConversation(
   let sdkEnv: Record<string, string | undefined>;
   if (isOllama) {
     sdkModel = parseOllamaModel(model);
-    sdkEnv = buildOllamaSdkEnv(userId);
+    let assignedOllamaUrl: string;
+    if (options.instanceUrl) {
+      assignedOllamaUrl = options.instanceUrl;
+    } else {
+      const ollamaInstances = readOllamaInstances(userId);
+      ollamaPool.setInstances(ollamaInstances.map((i) => i.url));
+      assignedOllamaUrl = ollamaPool.acquire(taskId ?? 0) ?? readOllamaUrl(userId).url;
+    }
+    sdkEnv = buildOllamaSdkEnv(userId, assignedOllamaUrl);
   } else if (isLocalAi) {
     sdkModel = parseLocalAiModel(model);
-    const { url: localAiUrl } = readLocalAiUrl(userId);
-    await ensureLocalAiProxy(localAiUrl, readLocalAiDisableProxy(userId));
-    sdkEnv = buildLocalAiSdkEnv(userId);
+    let assignedLocalAiUrl: string;
+    if (options.instanceUrl) {
+      assignedLocalAiUrl = options.instanceUrl;
+    } else {
+      const localAiInstances = readLocalAiInstances(userId);
+      localAiPool.setInstances(localAiInstances.map((i) => i.url));
+      assignedLocalAiUrl = localAiPool.acquire(taskId ?? 0) ?? readLocalAiUrl(userId).url;
+    }
+    await ensureLocalAiProxy(assignedLocalAiUrl, readLocalAiDisableProxy(userId));
+    sdkEnv = buildLocalAiSdkEnv(userId, assignedLocalAiUrl);
   } else {
     await ensureFreshClaudeToken(userId);
     sdkEnv = buildClaudeSdkEnv(userId);
@@ -375,6 +396,8 @@ export async function startConversation(
                   status: 'failed',
                   agent_type: linkedRun.agent_type as never,
                   conversation_id: conversationId,
+                  created_at: linkedRun.created_at,
+                  completed_at: linkedRun.completed_at,
                 },
               });
             }
@@ -608,12 +631,17 @@ export async function sendMessage(
   let resumeEnv: Record<string, string | undefined>;
   if (isOllamaResume) {
     resumeSdkModel = parseOllamaModel(resumeModel);
-    resumeEnv = buildOllamaSdkEnv(userId);
+    const ollamaInstances = readOllamaInstances(userId);
+    ollamaPool.setInstances(ollamaInstances.map((i) => i.url));
+    const assignedOllamaUrl = ollamaPool.getUrl(taskId) ?? ollamaPool.acquire(taskId) ?? readOllamaUrl(userId).url;
+    resumeEnv = buildOllamaSdkEnv(userId, assignedOllamaUrl);
   } else if (isLocalAiResume) {
     resumeSdkModel = parseLocalAiModel(resumeModel);
-    const { url: localAiResumeUrl } = readLocalAiUrl(userId);
-    await ensureLocalAiProxy(localAiResumeUrl, readLocalAiDisableProxy(userId));
-    resumeEnv = buildLocalAiSdkEnv(userId);
+    const localAiInstances = readLocalAiInstances(userId);
+    localAiPool.setInstances(localAiInstances.map((i) => i.url));
+    const assignedLocalAiUrl = localAiPool.getUrl(taskId) ?? localAiPool.acquire(taskId) ?? readLocalAiUrl(userId).url;
+    await ensureLocalAiProxy(assignedLocalAiUrl, readLocalAiDisableProxy(userId));
+    resumeEnv = buildLocalAiSdkEnv(userId, assignedLocalAiUrl);
   } else {
     await ensureFreshClaudeToken(userId);
     resumeEnv = buildClaudeSdkEnv(userId);

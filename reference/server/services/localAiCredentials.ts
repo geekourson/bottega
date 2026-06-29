@@ -15,6 +15,7 @@ import { promises as fs, readFileSync } from 'fs';
 import path from 'path';
 import os from 'os';
 import { getLocalAiProxyUrl } from './localAiProxy.js';
+import { localAiPool } from './instancePool.js';
 
 export const DEFAULT_LOCAL_AI_URL = 'http://localhost:8080';
 const DEFAULT_MAX_OUTPUT_TOKENS = 64000;
@@ -137,6 +138,61 @@ export async function writeLocalAiDisableProxy(
   await fs.writeFile(filePath, String(disable), { mode: 0o600 });
 }
 
+function resolveInstancesFilePath(userId: number | string | undefined): string {
+  return path.join(resolveUserDir(userId), 'local-ai-instances.json');
+}
+
+export interface LocalAiInstance {
+  url: string;
+}
+
+export function readLocalAiInstances(userId: number | string | undefined): LocalAiInstance[] {
+  const filePath = resolveInstancesFilePath(userId);
+  try {
+    const raw = readFileSync(filePath, 'utf8').trim();
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      // File exists (even if empty) — use its content, no migration.
+      return (parsed as LocalAiInstance[]).filter((e) => typeof e?.url === 'string' && e.url.length > 0);
+    }
+  } catch {
+    // File absent → fall through to legacy single-URL migration.
+  }
+  // Migration: old single-URL file → treat as one instance.
+  const { url } = readLocalAiUrl(userId);
+  return [{ url }];
+}
+
+export async function writeLocalAiInstances(
+  userId: number | string | undefined,
+  instances: LocalAiInstance[],
+): Promise<void> {
+  const filePath = resolveInstancesFilePath(userId);
+  await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  await fs.writeFile(filePath, JSON.stringify(instances, null, 2), { mode: 0o600 });
+  // Sync pool and queue.
+  const { localAiGpuQueue } = await import('./localGpuQueue.js');
+  localAiPool.setInstances(instances.map((i) => i.url));
+  localAiGpuQueue.setMaxConcurrent(Math.max(1, instances.length));
+}
+
+export async function deleteLocalAiInstance(
+  userId: number | string | undefined,
+  url: string,
+): Promise<void> {
+  const current = readLocalAiInstances(userId);
+  const next = current.filter((i) => i.url !== url);
+  await writeLocalAiInstances(userId, next);
+}
+
+export function initLocalAiPool(userId: number | string | undefined): void {
+  const instances = readLocalAiInstances(userId);
+  import('./localGpuQueue.js').then(({ localAiGpuQueue }) => {
+    localAiPool.setInstances(instances.map((i) => i.url));
+    localAiGpuQueue.setMaxConcurrent(Math.max(1, instances.length));
+  }).catch(() => {});
+}
+
 export async function clearLocalAiUrl(
   userId: number | string | undefined,
 ): Promise<boolean> {
@@ -163,7 +219,10 @@ export interface LocalAiAuthStatus {
 export async function getLocalAiAuthStatus(
   userId: number | string | undefined,
 ): Promise<LocalAiAuthStatus> {
-  const { url, urlPath } = readLocalAiUrl(userId);
+  // Ping the first configured instance; fall back to legacy URL if none.
+  const instances = readLocalAiInstances(userId);
+  const { urlPath } = readLocalAiUrl(userId);
+  const url = instances[0]?.url ?? readLocalAiUrl(userId).url;
   const maxOutputTokens = readLocalAiMaxTokens(userId);
   const contextWindowTokens = readLocalAiContextWindow(userId);
   const disableProxy = readLocalAiDisableProxy(userId);
@@ -211,7 +270,8 @@ export interface LocalAiModelEntry {
 export async function listLocalAiModels(
   userId: number | string | undefined,
 ): Promise<LocalAiModelEntry[]> {
-  const { url } = readLocalAiUrl(userId);
+  const instances = readLocalAiInstances(userId);
+  const url = instances[0]?.url ?? readLocalAiUrl(userId).url;
   const res = await fetch(`${url}/v1/models`, {
     signal: AbortSignal.timeout(5000),
   });
@@ -235,13 +295,13 @@ export async function listLocalAiModels(
 
 export function buildLocalAiSdkEnv(
   userId: number | string | undefined,
+  assignedUrl?: string,
 ): Record<string, string | undefined> {
-  const { url } = readLocalAiUrl(userId);
+  const { url: defaultUrl } = readLocalAiUrl(userId);
   const maxTokens = readLocalAiMaxTokens(userId);
-  // Use proxy URL unless the user explicitly disabled the proxy.
-  // Falls back to the direct URL if the proxy was never started.
   const disableProxy = readLocalAiDisableProxy(userId);
-  const effectiveUrl = disableProxy ? url : (getLocalAiProxyUrl() ?? url);
+  const baseUrl = assignedUrl ?? defaultUrl;
+  const effectiveUrl = disableProxy ? baseUrl : (getLocalAiProxyUrl() ?? baseUrl);
   console.log(
     `[LocalAiCredentials] buildLocalAiSdkEnv userId=${userId} CLAUDE_CODE_MAX_OUTPUT_TOKENS=${maxTokens} url=${effectiveUrl}`,
   );

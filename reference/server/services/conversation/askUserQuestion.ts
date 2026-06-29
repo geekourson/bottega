@@ -142,9 +142,9 @@ export function buildCanUseTool({
       // resolveAskUserQuestion before the SDK promise is resolved.
       if (typeof taskId === 'number') {
         const provider = conversationsDb.getById(conversationId)?.provider ?? '';
-        if (localGpuQueue.isLocalProvider(provider) && localGpuQueue.getActiveTaskId() === taskId) {
+        if (localGpuQueue.isLocalProvider(provider) && localGpuQueue.for(provider).isActive(taskId)) {
           console.log(`[LocalGpuQueue] Task ${taskId} paused for AskUserQuestion — releasing GPU slot`);
-          processNextInQueue(taskId);
+          processNextInQueue(taskId, provider);
         }
       }
     });
@@ -311,14 +311,15 @@ export async function resolveAskUserQuestion(
     const taskId = conversation?.task_id;
     const provider = conversation?.provider ?? '';
     if (typeof taskId === 'number' && localGpuQueue.isLocalProvider(provider)) {
-      if (!localGpuQueue.canRunNow(taskId)) {
+      const queue = localGpuQueue.for(provider);
+      if (!queue.canRunNow(taskId)) {
         console.log(`[LocalGpuQueue] Task ${taskId} answered — queuing to wait for GPU`);
         // waitToResume adds a 'resume' entry to the FIFO queue and blocks
         // until release() wakes us up (when it's this task's turn again).
-        await localGpuQueue.waitToResume(taskId);
+        await queue.waitToResume(taskId);
         console.log(`[LocalGpuQueue] Task ${taskId} resuming — GPU acquired`);
       } else {
-        localGpuQueue.setActive(taskId);
+        queue.setActive(taskId);
       }
     }
 

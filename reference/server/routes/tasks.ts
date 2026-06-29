@@ -13,6 +13,7 @@ import {
   saveTaskInputFile,
   deleteTaskInputFile,
   getRecordingPath,
+  resetTaskDoc,
 } from '../services/documentation.js';
 import { upload } from '../middleware/upload.js';
 import { notifyTaskStatusChange } from '../services/notifications.js';
@@ -1279,11 +1280,17 @@ router.delete(
              workflow_blocked = 0,
              pr_agent_complete = 0,
              refinement_complete = 0,
+             planification_complete = 0,
+             ux_design_approved = 0,
              workflow_run_count = 0,
              status = 'pending',
+             completed_at = NULL,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`
       ).run(taskId);
+
+      // Restore the task doc to its original request content (strips the plan written by the planification agent)
+      resetTaskDoc(taskWithProject.project_id, taskId);
 
       res.json({ success: true, conversationsDeleted, agentRunsDeleted });
     } catch (error) {

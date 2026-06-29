@@ -41,6 +41,8 @@ export interface AgentModelSetting {
   model: string;
   /** Provider-specific reasoning effort, or null when the provider has none. */
   effort: string | null;
+  /** Specific instance URL for ollama/local-ai. null = auto round-robin across all instances. */
+  instanceUrl?: string | null;
 }
 
 export type AgentModelSettings = Record<AgentType, AgentModelSetting>;

@@ -16,6 +16,7 @@ import { tasksDb, agentRunsDb, userDb, conversationsDb } from '../../database/db
 import { worktreeExists } from '../worktree.js';
 import { notifyClaudeComplete } from '../notifications.js';
 import { localGpuQueue } from '../localGpuQueue.js';
+import { localAiPool, ollamaPool } from '../instancePool.js';
 import type { StreamingContext } from './types.js';
 import type { AgentType } from '@shared/websocket/messages';
 
@@ -61,7 +62,7 @@ export function buildAgentRunCompletionHandler(
       const { id: agentRunId, agent_type: agentType, status } = linkedAgentRun;
 
       if (status === 'running') {
-        agentRunsDb.updateStatus(agentRunId, 'completed');
+        const updatedRun = agentRunsDb.updateStatus(agentRunId, 'completed');
         console.log(`[ConversationAdapter] Agent run ${agentRunId} (${agentType}) completed`);
 
         if (broadcastToTaskSubscribersFn) {
@@ -72,6 +73,8 @@ export function buildAgentRunCompletionHandler(
               status: 'completed',
               agent_type: agentType,
               conversation_id: conversationId,
+              created_at: updatedRun?.created_at ?? linkedAgentRun.created_at,
+              completed_at: updatedRun?.completed_at ?? null,
             },
           });
         }
@@ -167,7 +170,10 @@ export function failLinkedAgentRunIfRunning(
 function releaseLocalGpuQueue(taskId: number, ctx: StreamingContext): void {
   const provider = conversationsDb.getById(ctx.conversationId)?.provider ?? '';
   if (!localGpuQueue.isLocalProvider(provider)) return;
-  processNextInQueue(taskId);
+  // Release pool URL assignment now that the task has fully completed.
+  if (provider === 'local-ai') localAiPool.release(taskId);
+  else if (provider === 'ollama') ollamaPool.release(taskId);
+  processNextInQueue(taskId, provider);
 }
 
 /**
@@ -175,8 +181,9 @@ function releaseLocalGpuQueue(taskId: number, ctx: StreamingContext): void {
  * Called after a task releases its slot (terminal state, error, or
  * AskUserQuestion pause). Exported so askUserQuestion.ts can trigger it.
  */
-export function processNextInQueue(releasingTaskId: number): void {
-  const next = localGpuQueue.release(releasingTaskId, (candidateTaskId) => {
+export function processNextInQueue(releasingTaskId: number, provider: string): void {
+  const queue = localGpuQueue.for(provider);
+  const next = queue.release(releasingTaskId, (candidateTaskId) => {
     const candidate = tasksDb.getById(candidateTaskId);
     // Skip tasks that are still blocked (waiting for user input).
     return !candidate?.workflow_blocked;
@@ -184,18 +191,18 @@ export function processNextInQueue(releasingTaskId: number): void {
 
   if (!next) return;
 
-  console.log(`[LocalGpuQueue] Starting queued task ${next.taskId} (${next.agentType})`);
+  console.log(`[LocalGpuQueue] Starting queued task ${next.taskId} (${next.agentType}) on ${provider}`);
   import('../agentRunner.js')
     .then(({ startAgentRun }) =>
       startAgentRun(next.taskId, next.agentType, next.options).catch((err: unknown) => {
         console.error(`[LocalGpuQueue] Failed to start queued task ${next.taskId}:`, err);
         // Release slot on error so remaining tasks aren't stuck.
-        processNextInQueue(next.taskId);
+        processNextInQueue(next.taskId, provider);
       }),
     )
     .catch((err: unknown) => {
       console.error('[LocalGpuQueue] Failed to import agentRunner:', err);
-      processNextInQueue(next.taskId);
+      processNextInQueue(next.taskId, provider);
     });
 }
 

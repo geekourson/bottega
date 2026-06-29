@@ -50,3 +50,25 @@ export interface OllamaModelEntry {
 export interface OllamaModelsResponse {
   models: OllamaModelEntry[];
 }
+
+export interface OllamaInstanceEntry {
+  url: string;
+}
+
+export interface GetOllamaInstancesResponse {
+  instances: OllamaInstanceEntry[];
+}
+
+export interface AddOllamaInstanceRequest {
+  url: string;
+}
+
+export interface AddOllamaInstanceResponse {
+  ok: true;
+  instances: OllamaInstanceEntry[];
+}
+
+export interface DeleteOllamaInstanceResponse {
+  ok: true;
+  instances: OllamaInstanceEntry[];
+}

@@ -4,36 +4,45 @@
 // llama-server (llama.cpp), LM Studio, Jan.ai, etc. No API key required.
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, AlertCircle, CheckCircle2, Trash2, RefreshCw } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, Trash2, RefreshCw, Plus, Pencil, Check, X } from 'lucide-react';
 import { api } from '../utils/api';
 import { Button } from './ui/button';
 import type { LocalAiAuthStatusResponse } from '../../shared/api/localAiAuth';
-
-const DEFAULT_URL = 'http://localhost:8080';
 
 export function LocalAiAuthPanel() {
   const [status, setStatus] = useState<LocalAiAuthStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [urlValue, setUrlValue] = useState('');
   const [maxTokensValue, setMaxTokensValue] = useState('');
   const [contextWindowValue, setContextWindowValue] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
   const [proxyToggling, setProxyToggling] = useState(false);
+  const [instances, setInstances] = useState<{ url: string }[]>([]);
+  const [newInstanceUrl, setNewInstanceUrl] = useState('');
+  const [instancesLoading, setInstancesLoading] = useState(false);
+  const [editingUrl, setEditingUrl] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState('');
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.localAiAuth.status();
-      if (!res.ok) {
+      const [statusRes, instancesRes] = await Promise.all([
+        api.localAiAuth.status(),
+        api.localAiAuth.instances(),
+      ]);
+      if (!statusRes.ok) {
         setError('Failed to check Local AI status');
         setStatus(null);
         return;
       }
-      const body = await res.json();
+      const body = await statusRes.json();
       setStatus(body);
+      if (instancesRes.ok) {
+        const instancesBody = await instancesRes.json() as { instances: { url: string }[] };
+        setInstances(instancesBody.instances);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -44,28 +53,6 @@ export function LocalAiAuthPanel() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  const handleSaveUrl = async (): Promise<void> => {
-    const trimmed = urlValue.trim() || DEFAULT_URL;
-    setSubmitting(true);
-    setError(null);
-    setInfo(null);
-    try {
-      const res = await api.localAiAuth.setUrl(trimmed);
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(body.error ?? `Save failed (HTTP ${res.status})`);
-        return;
-      }
-      setUrlValue('');
-      setInfo('Local AI URL saved. Checking connection…');
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const handleSaveMaxTokens = async (): Promise<void> => {
     const tokens = parseInt(maxTokensValue.trim(), 10);
@@ -139,21 +126,76 @@ export function LocalAiAuthPanel() {
     }
   };
 
-  const handleClear = async (): Promise<void> => {
-    setSubmitting(true);
+  const handleAddInstance = async (): Promise<void> => {
+    const url = newInstanceUrl.trim();
+    if (!url) return;
+    setInstancesLoading(true);
     setError(null);
     setInfo(null);
     try {
-      const res = await api.localAiAuth.clear();
+      const res = await api.localAiAuth.addInstance(url);
       if (!res.ok) {
-        setError('Failed to reset Local AI URL');
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(body.error ?? 'Failed to add instance');
         return;
       }
-      const body = await res.json();
-      setInfo(body.cleared ? `URL reset to ${DEFAULT_URL}.` : 'Nothing to reset.');
-      await refresh();
+      const body = await res.json() as { instances: { url: string }[] };
+      setInstances(body.instances);
+      setNewInstanceUrl('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setSubmitting(false);
+      setInstancesLoading(false);
+    }
+  };
+
+  const handleDeleteInstance = async (url: string): Promise<void> => {
+    setInstancesLoading(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await api.localAiAuth.deleteInstance(url);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(body.error ?? 'Failed to remove instance');
+        return;
+      }
+      const body = await res.json() as { instances: { url: string }[] };
+      setInstances(body.instances);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInstancesLoading(false);
+    }
+  };
+
+  const handleSaveEdit = async (): Promise<void> => {
+    if (!editingUrl) return;
+    const newUrl = editingValue.trim();
+    if (!newUrl || newUrl === editingUrl) { setEditingUrl(null); return; }
+    setInstancesLoading(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const delRes = await api.localAiAuth.deleteInstance(editingUrl);
+      if (!delRes.ok) {
+        const body = (await delRes.json().catch(() => ({}))) as { error?: string };
+        setError(body.error ?? 'Failed to update instance');
+        return;
+      }
+      const addRes = await api.localAiAuth.addInstance(newUrl);
+      if (!addRes.ok) {
+        const body = (await addRes.json().catch(() => ({}))) as { error?: string };
+        setError(body.error ?? 'Failed to update instance');
+        return;
+      }
+      const body = await addRes.json() as { instances: { url: string }[] };
+      setInstances(body.instances);
+      setEditingUrl(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInstancesLoading(false);
     }
   };
 
@@ -228,54 +270,6 @@ export function LocalAiAuthPanel() {
           </Button>
         </div>
 
-        {status?.authenticated && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleClear}
-            disabled={submitting}
-            data-testid="local-ai-auth-clear"
-          >
-            <Trash2 className="w-3 h-3 mr-1" /> Reset to default URL
-          </Button>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <label
-          htmlFor="local-ai-url"
-          className="block text-sm font-medium text-foreground"
-        >
-          Server base URL{' '}
-          <span className="text-muted-foreground font-normal">
-            (default: {DEFAULT_URL})
-          </span>
-        </label>
-        <div className="flex gap-2">
-          <input
-            id="local-ai-url"
-            type="url"
-            value={urlValue}
-            onChange={(e) => setUrlValue(e.target.value)}
-            autoComplete="off"
-            placeholder={status?.url ?? DEFAULT_URL}
-            disabled={submitting}
-            data-testid="local-ai-url-input"
-            className="flex-1 font-mono text-xs bg-background border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-          <Button
-            onClick={handleSaveUrl}
-            disabled={submitting}
-            data-testid="local-ai-url-save"
-          >
-            {submitting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
-            {status?.authenticated ? 'Update URL' : 'Connect'}
-          </Button>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Default port is 8080 (llama-server), 1234 (LM Studio), or 1337 (Jan). Enter the
-          base URL without a path.
-        </p>
       </div>
 
       <div className="space-y-2">
@@ -352,6 +346,89 @@ export function LocalAiAuthPanel() {
           Must match the context size your server is actually configured with. Bottega trims
           old conversation history on resume to stay under this limit — set it too high and
           you'll see "exceeds the available context size" errors again.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-foreground">
+            Instances{' '}
+            <span className="text-muted-foreground font-normal">
+              ({instances.length} — {instances.length} agent{instances.length > 1 ? 's' : ''} simultané{instances.length > 1 ? 's' : ''})
+            </span>
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Chaque instance est un serveur Local AI distinct. Bottega répartit les agents en
+          round-robin — N instances = N agents simultanés autorisés.
+        </p>
+        <div className="space-y-1">
+          {instances.map((inst) => (
+            <div
+              key={inst.url}
+              className="flex items-center gap-2 px-3 py-1.5 bg-background border border-border rounded text-xs font-mono"
+            >
+              {editingUrl === inst.url ? (
+                <>
+                  <input
+                    type="url"
+                    value={editingValue}
+                    onChange={(e) => setEditingValue(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveEdit(); if (e.key === 'Escape') setEditingUrl(null); }}
+                    className="flex-1 min-w-0 bg-transparent border-none outline-none text-foreground"
+                    autoFocus
+                  />
+                  <button onClick={() => void handleSaveEdit()} disabled={instancesLoading} title="Confirm" className="text-emerald-500 hover:text-emerald-400 disabled:opacity-30 flex-shrink-0">
+                    <Check className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => setEditingUrl(null)} title="Cancel" className="text-muted-foreground hover:text-foreground flex-shrink-0">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 min-w-0 text-foreground truncate">{inst.url}</span>
+                  <button
+                    onClick={() => { setEditingUrl(inst.url); setEditingValue(inst.url); }}
+                    disabled={instancesLoading}
+                    title="Edit"
+                    className="text-muted-foreground hover:text-foreground disabled:opacity-30 flex-shrink-0"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => void handleDeleteInstance(inst.url)}
+                    disabled={instancesLoading}
+                    title="Remove"
+                    className="text-muted-foreground hover:text-red-500 disabled:opacity-30 flex-shrink-0"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="url"
+            value={newInstanceUrl}
+            onChange={(e) => setNewInstanceUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void handleAddInstance(); }}
+            placeholder="http://localhost:8080"
+            disabled={instancesLoading}
+            className="flex-1 font-mono text-xs bg-background border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+          <Button
+            onClick={handleAddInstance}
+            disabled={instancesLoading || !newInstanceUrl.trim()}
+            size="sm"
+          >
+            <Plus className="w-3.5 h-3.5 mr-1" /> Ajouter
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Port par défaut : 8080 (llama-server), 1234 (LM Studio), 1337 (Jan).
         </p>
       </div>
 
