@@ -48,7 +48,9 @@ vi.mock('../constants/agentPrompts.js', () => ({
 vi.mock('./worktree.js', () => ({
   getWorktreePath: vi.fn(),
   getWorktreeProjectPath: vi.fn(),
-  worktreeExists: vi.fn()
+  worktreeExists: vi.fn(),
+  getPullRequestStatus: vi.fn(),
+  resolveTaskWorkingDir: vi.fn()
 }));
 
 vi.mock('./claudeCredentials.js', () => ({
@@ -100,7 +102,7 @@ import {
   generateReviewMessage,
   generateRefinementMessage
 } from '../constants/agentPrompts.js';
-import { getWorktreeProjectPath, worktreeExists } from './worktree.js';
+import { resolveTaskWorkingDir } from './worktree.js';
 import { validateClaudeCredentials } from './claudeCredentials.js';
 import { loadAgentModelSettings } from './agentModelSettings.js';
 
@@ -111,6 +113,8 @@ describe('agentRunner', () => {
     title: 'Test Task',
     status: 'pending',
     repo_folder_path: '/path/to/project',
+    project_type: 'web',
+    uses_worktree: 1,
     user_id: 1,
     workflow_complete: 0
   };
@@ -140,7 +144,9 @@ describe('agentRunner', () => {
       vi.mocked(conversationsDb.create).mockReturnValue(mockConversation as never);
       vi.mocked(agentRunsDb.linkConversation).mockReturnValue({ ...mockAgentRun, conversation_id: 1 } as never);
       vi.mocked(startConversation).mockResolvedValue({ conversationId: 1, claudeSessionId: 'session-123' });
-      vi.mocked(worktreeExists).mockResolvedValue(false);
+      // Default: no worktree → resolver returns the main repo path (mirrors a
+      // uses_worktree=0 task). Worktree-specific tests override this.
+      vi.mocked(resolveTaskWorkingDir).mockResolvedValue('/path/to/project');
       vi.mocked(userDb.getUserById).mockReturnValue({ id: 1, username: 'test', is_technical: 1 } as never);
     });
 
@@ -171,7 +177,7 @@ describe('agentRunner', () => {
     it('should create agent run and conversation for planification agent', async () => {
       const result = await startAgentRun(1, 'planification');
 
-      expect(generatePlanificationMessage).toHaveBeenCalledWith('/archive/projects/1/tasks/task-1.md', 1, true);
+      expect(generatePlanificationMessage).toHaveBeenCalledWith('/archive/projects/1/tasks/task-1.md', 1, true, 1);
       expect(agentRunsDb.create).toHaveBeenCalledWith(1, 'planification', null, 'anthropic');
       expect(conversationsDb.create).toHaveBeenCalledWith(1, 'anthropic', 'opus', 'high');
       expect(agentRunsDb.linkConversation).toHaveBeenCalledWith(1, 1);
@@ -186,7 +192,7 @@ describe('agentRunner', () => {
       await startAgentRun(1, 'planification');
 
       expect(userDb.getUserById).toHaveBeenCalledWith(1);
-      expect(generatePlanificationMessage).toHaveBeenCalledWith('/archive/projects/1/tasks/task-1.md', 1, false);
+      expect(generatePlanificationMessage).toHaveBeenCalledWith('/archive/projects/1/tasks/task-1.md', 1, false, 1);
     });
 
     it('should use the acting user is_technical even when the task owner differs (non-tech actor on tech-owned task)', async () => {
@@ -199,7 +205,7 @@ describe('agentRunner', () => {
       await startAgentRun(1, 'planification', { userId: 2 });
 
       expect(userDb.getUserById).toHaveBeenCalledWith(2);
-      expect(generatePlanificationMessage).toHaveBeenCalledWith('/archive/projects/1/tasks/task-1.md', 1, false);
+      expect(generatePlanificationMessage).toHaveBeenCalledWith('/archive/projects/1/tasks/task-1.md', 1, false, 1);
     });
 
     it('should use the acting user is_technical even when the task owner differs (tech actor on non-tech-owned task)', async () => {
@@ -212,13 +218,13 @@ describe('agentRunner', () => {
       await startAgentRun(1, 'planification', { userId: 2 });
 
       expect(userDb.getUserById).toHaveBeenCalledWith(2);
-      expect(generatePlanificationMessage).toHaveBeenCalledWith('/archive/projects/1/tasks/task-1.md', 1, true);
+      expect(generatePlanificationMessage).toHaveBeenCalledWith('/archive/projects/1/tasks/task-1.md', 1, true, 1);
     });
 
     it('should create agent run and conversation for implementation agent', async () => {
       const result = await startAgentRun(1, 'implementation');
 
-      expect(generateImplementationMessage).toHaveBeenCalledWith('/archive/projects/1/tasks/task-1.md', 1);
+      expect(generateImplementationMessage).toHaveBeenCalledWith('/archive/projects/1/tasks/task-1.md', 1, 1);
       expect(agentRunsDb.create).toHaveBeenCalledWith(1, 'implementation', null, 'anthropic');
       expect(conversationsDb.create).toHaveBeenCalledWith(1, 'anthropic', 'opus', 'high');
       expect(result.agentRun).toEqual(mockAgentRun);
@@ -227,7 +233,7 @@ describe('agentRunner', () => {
     it('should create agent run and conversation for review agent', async () => {
       const result = await startAgentRun(1, 'review');
 
-      expect(generateReviewMessage).toHaveBeenCalledWith('/archive/projects/1/tasks/task-1.md', 1);
+      expect(generateReviewMessage).toHaveBeenCalledWith('/archive/projects/1/tasks/task-1.md', 1, 1);
       expect(agentRunsDb.create).toHaveBeenCalledWith(1, 'review', null, 'anthropic');
       expect(conversationsDb.create).toHaveBeenCalledWith(1, 'anthropic', 'opus', 'high');
       expect(result.agentRun).toEqual(mockAgentRun);
@@ -236,7 +242,7 @@ describe('agentRunner', () => {
     it('should create agent run and conversation for refinement agent', async () => {
       const result = await startAgentRun(1, 'refinement');
 
-      expect(generateRefinementMessage).toHaveBeenCalledWith('/archive/projects/1/tasks/task-1.md', 1);
+      expect(generateRefinementMessage).toHaveBeenCalledWith('/archive/projects/1/tasks/task-1.md', 1, 1);
       expect(agentRunsDb.create).toHaveBeenCalledWith(1, 'refinement', null, 'anthropic');
       expect(conversationsDb.create).toHaveBeenCalledWith(1, 'anthropic', 'opus', 'high');
       expect(result.agentRun).toEqual(mockAgentRun);
@@ -271,10 +277,35 @@ describe('agentRunner', () => {
       expect(updateUserBadge).not.toHaveBeenCalled();
     });
 
-    it('should build context prompt with project id and task id', async () => {
+    it('should build context prompt with project id, task id, repo path and project type', async () => {
       await startAgentRun(1, 'implementation');
 
-      expect(buildContextPrompt).toHaveBeenCalledWith(1, 1);
+      expect(buildContextPrompt).toHaveBeenCalledWith(1, 1, '/path/to/project', 'web');
+    });
+
+    it('resolves the working dir from the task persisted worktree decision (never probes the FS)', async () => {
+      await startAgentRun(1, 'implementation');
+
+      expect(resolveTaskWorkingDir).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId: 1,
+          repoFolderPath: '/path/to/project',
+          usesWorktree: true, // mockTaskWithProject.uses_worktree === 1
+        }),
+      );
+    });
+
+    it('passes usesWorktree=false for a task that runs on main (e.g. PO)', async () => {
+      vi.mocked(tasksDb.getWithProject).mockReturnValue({
+        ...mockTaskWithProject,
+        uses_worktree: 0,
+      } as never);
+
+      await startAgentRun(1, 'implementation');
+
+      expect(resolveTaskWorkingDir).toHaveBeenCalledWith(
+        expect.objectContaining({ usesWorktree: false }),
+      );
     });
 
     it('should pass the central-archive task doc path to the agent prompt', async () => {
@@ -283,6 +314,7 @@ describe('agentRunner', () => {
       // Task doc always lives in the central archive (not the worktree)
       expect(generateImplementationMessage).toHaveBeenCalledWith(
         '/archive/projects/1/tasks/task-1.md',
+        1,
         1
       );
     });
@@ -418,8 +450,7 @@ describe('agentRunner', () => {
     });
 
     it('should set videoConfig.worktreePath to the worktree path when a worktree exists', async () => {
-      vi.mocked(worktreeExists).mockResolvedValue(true);
-      vi.mocked(getWorktreeProjectPath).mockReturnValue('/path/to/project-worktrees/task-1');
+      vi.mocked(resolveTaskWorkingDir).mockResolvedValue('/path/to/project-worktrees/task-1');
 
       await startAgentRun(1, 'review');
 
@@ -440,6 +471,25 @@ describe('agentRunner', () => {
       expect(startConversation).toHaveBeenCalledWith(
         1,
         'implementation message',
+        expect.objectContaining({
+          videoConfig: null
+        })
+      );
+    });
+
+    it('should not pass videoConfig for a review agent on a non-web project', async () => {
+      // Playwright video capture only makes sense for browser-driven (web)
+      // projects; api/cli/library/game review runs must not record video.
+      vi.mocked(tasksDb.getWithProject).mockReturnValue({
+        ...mockTaskWithProject,
+        project_type: 'cli',
+      } as never);
+
+      await startAgentRun(1, 'review');
+
+      expect(startConversation).toHaveBeenCalledWith(
+        1,
+        'review message',
         expect.objectContaining({
           videoConfig: null
         })

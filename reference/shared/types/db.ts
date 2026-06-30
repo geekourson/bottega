@@ -22,6 +22,11 @@ export type { Provider };
 
 export type TaskStatus = 'pending' | 'in_progress' | 'in_review' | 'completed';
 
+// Drives the per-project "Verification Profile" injected into the agent system
+// prompt (see `buildContextPrompt` in server/services/documentation.ts). A
+// project maps 1:1 to a repo, so each repo carries its own type.
+export type ProjectType = 'web' | 'api' | 'cli' | 'game' | 'library';
+
 export type AgentType =
   | 'planification'
   | 'implementation'
@@ -71,6 +76,7 @@ export interface ProjectRow {
   user_id: number;
   name: string;
   repo_folder_path: string;
+  project_type: ProjectType;
   subproject_path: string | null;
   active_worktree_task_id: number | null;
   serve_symlink_path: string | null;
@@ -106,6 +112,10 @@ export interface TaskRow {
   yolo_mode: SqliteBoolean;
   ux_review_required: SqliteBoolean;
   ux_design_approved: SqliteBoolean;
+  // Persisted worktree-isolation decision, taken once at creation (auto rule:
+  // 1 when the project repo is a git repo, else 0) and respected by every agent
+  // run / conversation thereafter — never re-inferred from the filesystem.
+  uses_worktree: SqliteBoolean;
   completed_at: string | null;
   created_at: string;
   updated_at: string;

@@ -86,8 +86,21 @@ Run the project's unit tests:
 4. **Wait for backgrounded tests** before re-launching — do NOT start parallel test runs, they compete for resources. Only re-run after the previous one completes
 - Report any failures or issues found
 
-### 5. Manual Testing with Playwright MCP
-Follow the manual testing scenarios from the Testing Strategy section.
+### 5. Manual Verification
+
+Verify the work using the approach described in the **Verification Profile** of
+your system prompt (the "## Testing Configuration" section). The profile matches
+the project type:
+- **web** → drive the UI with Playwright MCP (the steps below apply).
+- **api** → exercise endpoints with `curl` and inspect DB state — do NOT use Playwright.
+- **cli** → run the built command and assert on its output/exit code.
+- **library** → run the automated test suite; there is nothing to launch.
+- **game** → build, launch, and verify via the engine's tooling.
+
+Then follow the manual scenarios from the Testing Strategy section, using the
+tools appropriate to the project type. **The Playwright/server instructions below
+apply only when the Verification Profile is `web`** — skip them entirely for the
+other types.
 
 **CRITICAL: Server Isolation Rules**
 - Your task-specific port is in the Testing Configuration section of your system prompt
@@ -113,12 +126,27 @@ Testing steps:
 - **Stop video recording LAST** after all Playwright tests: call `browser_stop_video`
 
 ### Important: Testing Scope Rules
-**ALL testing scenarios in the Testing Strategy are MANDATORY.**
 
-- The Testing Strategy was defined during planification and approved by the user
-- You MUST NOT skip, declare "out of scope", or rationalize away any test
-- Every scenario must be either: PASS, FAIL, or BLOCKED
-- If you cannot perform a test for ANY reason (missing access, unclear steps, dependencies), mark the task as BLOCKED - do NOT mark the test as "skipped"
+Verification has two layers, and you must honor both:
+
+1. **Floor — the Verification Profile (mandatory).** The approach in your system
+   prompt's Verification Profile is the minimum for this project type. It cannot
+   be skipped or downgraded.
+2. **Plan — the Testing Strategy scenarios.** Execute every scenario the plan
+   defines, using the tools appropriate to the project type. You MUST NOT skip,
+   declare "out of scope", or rationalize away a scenario.
+
+Every scenario must end as PASS, FAIL, or BLOCKED.
+
+**Distinguish a real failure from an environmental blocker — this matters:**
+- The change is wrong / a scenario reveals a defect → **FAIL** (drives NEEDS_WORK).
+- A scenario is **impossible to run for environmental reasons** (dev server won't
+  start, a required port/service/credential is unavailable, infra is missing) →
+  mark it **BLOCKED** and set the overall status to **BLOCKED**, NOT NEEDS_WORK.
+  Do NOT bounce the task back to implementation for something the code can't fix —
+  that is exactly what causes the implementation↔review loop. Hand control back to
+  the user via the block path instead.
+- Never mark a scenario "skipped".
 
 ### 6. Evaluate Completion Status
 

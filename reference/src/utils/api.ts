@@ -43,6 +43,11 @@ import type {
   VerifyWebServerResponse,
   GetProjectReadmeResponse,
   UpdateProjectReadmeResponse,
+  GetProjectConstraintsResponse,
+  UpdateProjectConstraintsResponse,
+  ListProjectPromptsResponse,
+  GetProjectPromptResponse,
+  SaveProjectPromptResponse,
 } from '../../shared/api/projects';
 import type {
   ListAllTasksResponse,
@@ -76,7 +81,7 @@ import type {
   GetDiffResponse,
   ResetTaskResponse,
 } from '../../shared/api/tasks';
-import type { TaskRow, TaskStatus } from '../../shared/types/db';
+import type { ProjectType, TaskRow, TaskStatus } from '../../shared/types/db';
 import type {
   ListConversationsResponse,
   CreateConversationRequest,
@@ -458,8 +463,13 @@ export const api = {
   projects: {
     list: (): TypedFetch<ListProjectsResponse> =>
       authenticatedFetch<ListProjectsResponse>('/api/projects'),
-    create: (name: string, repoFolderPath: string): TypedFetch<CreateProjectResponse> => {
+    create: (
+      name: string,
+      repoFolderPath: string,
+      projectType?: ProjectType,
+    ): TypedFetch<CreateProjectResponse> => {
       const body: CreateProjectRequest = { name, repoFolderPath };
+      if (projectType) body.projectType = projectType;
       return authenticatedFetch<CreateProjectResponse>('/api/projects', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -528,6 +538,34 @@ export const api = {
       authenticatedFetch<UpdateProjectReadmeResponse>(`/api/projects/${projectId}/readme`, {
         method: 'PUT',
         body: JSON.stringify({ content }),
+      }),
+    getConstraints: (projectId: number): TypedFetch<GetProjectConstraintsResponse> =>
+      authenticatedFetch<GetProjectConstraintsResponse>(`/api/projects/${projectId}/constraints`),
+    updateConstraints: (
+      projectId: number,
+      content: string,
+    ): TypedFetch<UpdateProjectConstraintsResponse> =>
+      authenticatedFetch<UpdateProjectConstraintsResponse>(`/api/projects/${projectId}/constraints`, {
+        method: 'PUT',
+        body: JSON.stringify({ content }),
+      }),
+    listPrompts: (projectId: number): TypedFetch<ListProjectPromptsResponse> =>
+      authenticatedFetch<ListProjectPromptsResponse>(`/api/projects/${projectId}/prompts`),
+    getPrompt: (projectId: number, name: string): TypedFetch<GetProjectPromptResponse> =>
+      authenticatedFetch<GetProjectPromptResponse>(`/api/projects/${projectId}/prompts/${name}`),
+    savePrompt: (
+      projectId: number,
+      name: string,
+      content: string,
+      expectedMtime?: number,
+    ): TypedFetch<SaveProjectPromptResponse> =>
+      authenticatedFetch<SaveProjectPromptResponse>(`/api/projects/${projectId}/prompts/${name}`, {
+        method: 'PUT',
+        body: JSON.stringify({ content, expectedMtime }),
+      }),
+    deletePrompt: (projectId: number, name: string): TypedFetch<undefined> =>
+      authenticatedFetch<undefined>(`/api/projects/${projectId}/prompts/${name}`, {
+        method: 'DELETE',
       }),
   },
 

@@ -17,7 +17,12 @@ import {
   getPromptsDir,
   getTemplatesDir,
   renderPrompt,
-  resolvePromptPath
+  resolvePromptPath,
+  hasProjectOverride,
+  loadProjectOverride,
+  saveProjectOverride,
+  deleteProjectOverride,
+  getProjectOverrideMtime
 } from './promptRenderer.js';
 
 describe('promptRenderer', () => {
@@ -249,6 +254,76 @@ describe('promptRenderer', () => {
       deleteOverride('plan-template');
       const p = resolvePromptPath('plan-template');
       expect(p).toMatch(/server\/constants\/templates\/plan-template\.md$/);
+    });
+  });
+
+  describe('per-project overrides (Tier 2)', () => {
+    const PROJECT_A = 1;
+    const PROJECT_B = 2;
+
+    it('loadProjectOverride returns null when no project override exists', () => {
+      expect(loadProjectOverride('implementation', PROJECT_A)).toBeNull();
+      expect(hasProjectOverride('implementation', PROJECT_A)).toBe(false);
+    });
+
+    it('saves and reads back a per-project override under projects/{id}/prompts', () => {
+      saveProjectOverride('implementation', PROJECT_A, 'PROJECT A IMPL {{taskId}}');
+
+      expect(hasProjectOverride('implementation', PROJECT_A)).toBe(true);
+      expect(loadProjectOverride('implementation', PROJECT_A)).toBe('PROJECT A IMPL {{taskId}}');
+      expect(
+        fs.existsSync(
+          path.join(archiveRoot, 'projects', String(PROJECT_A), 'prompts', 'implementation.md'),
+        ),
+      ).toBe(true);
+    });
+
+    it('resolution order is project → global → default', () => {
+      // default
+      expect(loadPrompt('implementation', PROJECT_A)).toContain('@agent-Implement');
+
+      // global override beats default
+      saveOverride('implementation', 'GLOBAL IMPL');
+      expect(loadPrompt('implementation', PROJECT_A)).toBe('GLOBAL IMPL');
+
+      // project override beats global
+      saveProjectOverride('implementation', PROJECT_A, 'PROJECT IMPL');
+      expect(loadPrompt('implementation', PROJECT_A)).toBe('PROJECT IMPL');
+
+      // without a projectId, the global override still applies
+      expect(loadPrompt('implementation')).toBe('GLOBAL IMPL');
+    });
+
+    it('isolates overrides between projects', () => {
+      saveProjectOverride('review', PROJECT_A, 'A REVIEW');
+      expect(loadPrompt('review', PROJECT_A)).toBe('A REVIEW');
+      // Project B has no override → falls back to default.
+      expect(hasProjectOverride('review', PROJECT_B)).toBe(false);
+      expect(loadPrompt('review', PROJECT_B)).toContain('@agent-Review');
+    });
+
+    it('deleting a project override falls back to global/default', () => {
+      saveOverride('review', 'GLOBAL REVIEW');
+      saveProjectOverride('review', PROJECT_A, 'A REVIEW');
+      expect(loadPrompt('review', PROJECT_A)).toBe('A REVIEW');
+
+      expect(deleteProjectOverride('review', PROJECT_A)).toBe(true);
+      expect(loadPrompt('review', PROJECT_A)).toBe('GLOBAL REVIEW');
+    });
+
+    it('tracks the project override mtime independently', () => {
+      expect(getProjectOverrideMtime('implementation', PROJECT_A)).toBeNull();
+      const mtime = saveProjectOverride('implementation', PROJECT_A, 'X');
+      expect(typeof mtime).toBe('number');
+      expect(getProjectOverrideMtime('implementation', PROJECT_A)).toBe(mtime);
+    });
+
+    it('resolvePromptPath prefers the project override path', () => {
+      saveProjectOverride('plan-template', PROJECT_A, '# PROJECT TEMPLATE');
+      const p = resolvePromptPath('plan-template', PROJECT_A);
+      expect(p).toBe(
+        path.join(archiveRoot, 'projects', String(PROJECT_A), 'templates', 'plan-template.md'),
+      );
     });
   });
 });

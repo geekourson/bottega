@@ -63,6 +63,48 @@ export function getWorktreesDir(repoPath: string): string {
   return `${repoPath}-worktrees`;
 }
 
+export interface TaskWorkingDirInput {
+  taskId: number;
+  repoFolderPath: string;
+  subprojectPath: string | null;
+  /** The task's persisted worktree decision (tasks.uses_worktree). */
+  usesWorktree: boolean;
+  title?: string | null;
+}
+
+/**
+ * Resolve the working directory for a task's agent run or conversation, honoring
+ * the task's PERSISTED worktree decision rather than probing the filesystem.
+ *
+ * This is the single source of truth for isolation:
+ * - `usesWorktree = false` → the main repo, intentionally and consistently
+ *   (e.g. the PO agent, or projects that aren't git repos).
+ * - `usesWorktree = true` → always the task's worktree. If the worktree
+ *   directory is missing (e.g. it was removed on merge/cleanup and an agent is
+ *   re-triggered), it is recreated. If recreation fails we THROW rather than
+ *   silently falling back to the main repo — a coding agent must never run on
+ *   main when the task is supposed to be isolated.
+ */
+export async function resolveTaskWorkingDir(input: TaskWorkingDirInput): Promise<string> {
+  const { taskId, repoFolderPath, subprojectPath, usesWorktree, title } = input;
+
+  if (!usesWorktree) {
+    return repoFolderPath;
+  }
+
+  if (!(await worktreeExists(repoFolderPath, taskId))) {
+    const created = await createWorktree(repoFolderPath, taskId, title ?? null, subprojectPath);
+    if (!created.success) {
+      throw new Error(
+        `Task ${taskId} uses an isolated worktree but it is missing and could not be recreated ` +
+          `(${created.error}). Refusing to run on the main repo.`,
+      );
+    }
+  }
+
+  return getWorktreeProjectPath(repoFolderPath, taskId, subprojectPath);
+}
+
 /**
  * Check if a worktree exists for a task
  */

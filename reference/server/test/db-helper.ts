@@ -9,6 +9,7 @@ import type {
   ConversationRow,
   ProjectMemberRow,
   ProjectRow,
+  ProjectType,
   TaskRow,
   TaskStatus,
   UserRow,
@@ -86,15 +87,23 @@ export interface CreatedTestProject {
   userId: number;
   name: string;
   repoFolderPath: string;
+  projectType: ProjectType;
 }
 
 export interface ProjectUpdatesInput {
   name?: string;
   repo_folder_path?: string;
+  project_type?: ProjectType;
 }
 
 export interface TestProjectsDb {
-  create: (userId: number, name: string, repoFolderPath: string) => CreatedTestProject;
+  create: (
+    userId: number,
+    name: string,
+    repoFolderPath: string,
+    subprojectPath?: string | null,
+    projectType?: ProjectType,
+  ) => CreatedTestProject;
   getAll: (userId: number) => ProjectRow[];
   getById: (id: number, userId: number) => ProjectRow | undefined;
   update: (id: number, userId: number, updates: ProjectUpdatesInput) => ProjectRow | undefined | null;
@@ -108,6 +117,7 @@ export interface CreatedTestTask {
   title: string | null;
   status: TaskStatus;
   yolo_mode: 0 | 1;
+  uses_worktree: 0 | 1;
 }
 
 export interface TaskUpdatesInput {
@@ -136,6 +146,8 @@ export interface TestTasksDb {
     title?: string | null,
     yoloMode?: boolean,
     userId?: number | null,
+    uxReviewRequired?: boolean,
+    usesWorktree?: boolean,
   ) => CreatedTestTask;
   getAll: (userId: number, status?: TaskStatus | null) => TaskRowWithProject[];
   getByProject: (projectId: number) => TaskRow[];
@@ -387,18 +399,22 @@ export function createTestDatabase(): TestDatabase {
   };
 
   const projectsDb: TestProjectsDb = {
-    create: (userId, name, repoFolderPath) => {
+    // NOTE: the test schema is built from init.sql only, which (matching the
+    // real fresh-DB schema) does NOT include subproject_path — that column is
+    // added by a migration in db.ts. So subprojectPath is accepted for
+    // signature parity but not persisted here. project_type IS in init.sql.
+    create: (userId, name, repoFolderPath, _subprojectPath = null, projectType = 'web') => {
       const stmt = db.prepare(
-        'INSERT INTO projects (user_id, name, repo_folder_path) VALUES (?, ?, ?)',
+        'INSERT INTO projects (user_id, name, repo_folder_path, project_type) VALUES (?, ?, ?, ?)',
       );
-      const result = stmt.run(userId, name, repoFolderPath);
+      const result = stmt.run(userId, name, repoFolderPath, projectType);
       const projectId = lastInsertId(result.lastInsertRowid);
       // Auto-add creator as member
       db.prepare('INSERT INTO project_members (project_id, user_id) VALUES (?, ?)').run(
         projectId,
         userId,
       );
-      return { id: projectId, userId, name, repoFolderPath };
+      return { id: projectId, userId, name, repoFolderPath, projectType };
     },
     getAll: (userId) => {
       return db
@@ -429,7 +445,7 @@ export function createTestDatabase(): TestDatabase {
         return null;
       }
 
-      const allowedFields: Array<keyof ProjectUpdatesInput> = ['name', 'repo_folder_path'];
+      const allowedFields: Array<keyof ProjectUpdatesInput> = ['name', 'repo_folder_path', 'project_type'];
       const setClause: string[] = [];
       const values: Array<string | number> = [];
 
@@ -469,12 +485,13 @@ export function createTestDatabase(): TestDatabase {
   };
 
   const tasksDb: TestTasksDb = {
-    create: (projectId, title = null, yoloMode = false, userId = null) => {
+    create: (projectId, title = null, yoloMode = false, userId = null, _uxReviewRequired = false, usesWorktree = false) => {
       const stmt = db.prepare(
-        'INSERT INTO tasks (project_id, user_id, title, status, yolo_mode) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO tasks (project_id, user_id, title, status, yolo_mode, uses_worktree) VALUES (?, ?, ?, ?, ?, ?)',
       );
       const yoloFlag: 0 | 1 = yoloMode ? 1 : 0;
-      const result = stmt.run(projectId, userId, title, 'pending', yoloFlag);
+      const worktreeFlag: 0 | 1 = usesWorktree ? 1 : 0;
+      const result = stmt.run(projectId, userId, title, 'pending', yoloFlag, worktreeFlag);
       return {
         id: lastInsertId(result.lastInsertRowid),
         projectId,
@@ -482,6 +499,7 @@ export function createTestDatabase(): TestDatabase {
         title,
         status: 'pending',
         yolo_mode: yoloFlag,
+        uses_worktree: worktreeFlag,
       };
     },
     getAll: (userId, status = null) => {

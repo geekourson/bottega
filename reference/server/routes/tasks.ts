@@ -133,12 +133,16 @@ router.post(
 
       const isGit = await isGitRepository(project.repo_folder_path);
 
+      // Persist the worktree-isolation decision now (auto rule: isolate iff the
+      // repo is a git repo). Every agent run for this task respects this flag
+      // thereafter — it is never re-inferred from the filesystem.
       const task = tasksDb.create(
         projectId,
         title?.trim() || null,
         !!yolo_mode,
         userId,
         !!ux_review_required,
+        isGit,
       ) as unknown as { id: number; [k: string]: unknown };
 
       if (isGit) {
@@ -947,6 +951,10 @@ router.post(
       if (!result.success) {
         return res.status(500).json({ error: `Failed to create worktree: ${result.error}` } satisfies ApiError);
       }
+
+      // Explicitly creating a worktree records the decision: this task is now
+      // isolated, so every agent run honors it.
+      tasksDb.update(taskId, { uses_worktree: 1 });
 
       const status = await getWorktreeStatus(taskWithProject.repo_folder_path, taskId);
       res.status(201).json(status);

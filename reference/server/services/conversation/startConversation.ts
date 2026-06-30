@@ -7,7 +7,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { promises as fs } from 'fs';
 import { conversationsDb, tasksDb, agentRunsDb } from '../../database/db.js';
 import { resolveResumeModelEffort } from '../agentModelSettings.js';
-import { getWorktreeProjectPath, worktreeExists } from '../worktree.js';
+import { resolveTaskWorkingDir } from '../worktree.js';
 import { getGitHubToken } from '../githubCredentials.js';
 import { generateConversationTitle } from '../titleGenerator.js';
 import {
@@ -118,15 +118,19 @@ export async function startConversation(
   }
 
   // Prefer the caller-supplied path (agentRunner resolves the worktree once
-  // before calling us, so we don't re-check and risk a race).
+  // before calling us, so we don't re-check and risk a race). Otherwise resolve
+  // from the task's persisted worktree decision — never probe the filesystem.
   let projectPath: string;
   if (options.projectPath) {
     projectPath = options.projectPath;
   } else {
-    projectPath = taskWithProject.repo_folder_path;
-    if (await worktreeExists(projectPath, taskId)) {
-      projectPath = getWorktreeProjectPath(projectPath, taskId, taskWithProject.subproject_path);
-    }
+    projectPath = await resolveTaskWorkingDir({
+      taskId,
+      repoFolderPath: taskWithProject.repo_folder_path,
+      subprojectPath: taskWithProject.subproject_path,
+      usesWorktree: taskWithProject.uses_worktree === 1,
+      title: taskWithProject.title,
+    });
   }
 
   const isOllama = options.provider === 'ollama';
@@ -614,15 +618,17 @@ export async function sendMessage(
   let projectPath: string;
 
   // Prefer the stored session_path so worktree-started sessions resume in the
-  // same cwd.
+  // same cwd. Otherwise resolve from the task's persisted worktree decision.
   if (conversation.session_path) {
     projectPath = conversation.session_path;
   } else {
-    projectPath = taskWithProject.repo_folder_path;
-
-    if (await worktreeExists(projectPath, taskId)) {
-      projectPath = getWorktreeProjectPath(projectPath, taskId, taskWithProject.subproject_path);
-    }
+    projectPath = await resolveTaskWorkingDir({
+      taskId,
+      repoFolderPath: taskWithProject.repo_folder_path,
+      subprojectPath: taskWithProject.subproject_path,
+      usesWorktree: taskWithProject.uses_worktree === 1,
+      title: taskWithProject.title,
+    });
   }
 
   const abortController = new AbortController();

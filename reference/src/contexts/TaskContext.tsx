@@ -22,6 +22,7 @@ import { api } from '../utils/api';
 import { useWebSocket } from './WebSocketContext';
 import type {
   ProjectRow,
+  ProjectType,
   TaskRow,
   ConversationRow,
   AgentRunRow,
@@ -91,6 +92,7 @@ export interface TaskContextValue {
   createProject: (
     name: string,
     repoFolderPath: string,
+    projectType?: ProjectType,
   ) => Promise<CreateProjectResult>;
   updateProject: (
     id: number,
@@ -277,9 +279,10 @@ export function TaskContextProvider({ children }: { children: ReactNode }) {
     async (
       name: string,
       repoFolderPath: string,
+      projectType?: ProjectType,
     ): Promise<CreateProjectResult> => {
       try {
-        const response = await api.projects.create(name, repoFolderPath);
+        const response = await api.projects.create(name, repoFolderPath, projectType);
         if (response.ok) {
           const newProject = await response.json();
           setProjects((prev) => [...prev, newProject]);

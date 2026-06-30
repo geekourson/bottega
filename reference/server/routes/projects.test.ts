@@ -22,7 +22,30 @@ vi.mock('../services/projectService.js', () => ({
 
 // Mock the documentation service
 vi.mock('../services/documentation.js', () => ({
-  saveConversationUpload: vi.fn()
+  saveConversationUpload: vi.fn(),
+  readProjectReadme: vi.fn(),
+  writeProjectReadme: vi.fn(),
+  readProjectConstraints: vi.fn(),
+  writeProjectConstraints: vi.fn()
+}));
+
+// Mock the prompt renderer (Tier 2 per-project overrides)
+vi.mock('../services/promptRenderer.js', () => ({
+  listPromptNames: vi.fn(() => ['implementation', 'review']),
+  getPromptDefinition: vi.fn((name: string) =>
+    name === 'implementation' || name === 'review'
+      ? { name, label: name, kind: 'prompt', file: `${name}.md`, variables: ['taskDocPath', 'taskId'] }
+      : null,
+  ),
+  loadDefault: vi.fn(() => 'DEFAULT'),
+  loadPrompt: vi.fn(() => 'EFFECTIVE'),
+  hasOverride: vi.fn(() => false),
+  hasProjectOverride: vi.fn(() => false),
+  loadProjectOverride: vi.fn(() => null),
+  saveProjectOverride: vi.fn(() => 123),
+  deleteProjectOverride: vi.fn(() => true),
+  getProjectOverrideMtime: vi.fn(() => null),
+  findUnknownVariables: vi.fn(() => [])
 }));
 
 // Mock the upload middleware (no size/extension restrictions)
@@ -37,7 +60,17 @@ vi.mock('../middleware/upload.js', async () => {
 import projectsRoutes from './projects.js';
 import { projectsDb } from '../database/db.js';
 import { getAllProjects, getProject, updateProject, deleteProject } from '../services/projectService.js';
-import { saveConversationUpload } from '../services/documentation.js';
+import {
+  saveConversationUpload,
+  readProjectConstraints,
+  writeProjectConstraints,
+} from '../services/documentation.js';
+import {
+  findUnknownVariables,
+  saveProjectOverride,
+  deleteProjectOverride,
+  getProjectOverrideMtime,
+} from '../services/promptRenderer.js';
 
 describe('Projects Routes - Phase 3', () => {
   let app: import("express").Application;
@@ -93,7 +126,29 @@ describe('Projects Routes - Phase 3', () => {
 
       expect(response.status).toBe(201);
       expect(response.body).toEqual(newProject);
-      expect(projectsDb.create).toHaveBeenCalledWith(testUserId, 'New Project', '/path/new', null);
+      // projectType defaults to 'web' via the zod schema when omitted.
+      expect(projectsDb.create).toHaveBeenCalledWith(testUserId, 'New Project', '/path/new', null, 'web');
+    });
+
+    it('should pass an explicit projectType through to the DB layer', async () => {
+      const newProject = { id: 2, userId: testUserId, name: 'API Project', repoFolderPath: '/path/api' };
+      vi.mocked(projectsDb.create).mockReturnValue(newProject as never);
+
+      const response = await request(app)
+        .post('/api/projects')
+        .send({ name: 'API Project', repoFolderPath: '/path/api', projectType: 'api' });
+
+      expect(response.status).toBe(201);
+      expect(projectsDb.create).toHaveBeenCalledWith(testUserId, 'API Project', '/path/api', null, 'api');
+    });
+
+    it('should return 400 on an invalid projectType', async () => {
+      const response = await request(app)
+        .post('/api/projects')
+        .send({ name: 'X', repoFolderPath: '/path/x', projectType: 'mobile' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Validation failed');
     });
 
     it('should return 400 if name is missing', async () => {
@@ -284,6 +339,126 @@ describe('Projects Routes - Phase 3', () => {
       expect(response.status).toBe(201);
       expect(response.body.success).toBe(true);
       expect(response.body.file.relativePath).toBe('./tmp/data.xlsx');
+    });
+  });
+
+  describe('GET /api/projects/:id/constraints', () => {
+    it('should return the project constraints content', async () => {
+      vi.mocked(getProject).mockReturnValue({ id: 1, user_id: testUserId } as never);
+      vi.mocked(readProjectConstraints).mockReturnValue('Never touch billing.');
+
+      const response = await request(app).get('/api/projects/1/constraints');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ content: 'Never touch billing.' });
+      expect(readProjectConstraints).toHaveBeenCalledWith(1);
+    });
+
+    it('should return 404 when the project is not found', async () => {
+      vi.mocked(getProject).mockReturnValue(undefined as never);
+
+      const response = await request(app).get('/api/projects/999/constraints');
+
+      expect(response.status).toBe(404);
+    });
+  });
+
+  describe('PUT /api/projects/:id/constraints', () => {
+    it('should persist the constraints content', async () => {
+      vi.mocked(getProject).mockReturnValue({ id: 1, user_id: testUserId } as never);
+
+      const response = await request(app)
+        .put('/api/projects/1/constraints')
+        .send({ content: 'All prices in cents.' });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ content: 'All prices in cents.' });
+      expect(writeProjectConstraints).toHaveBeenCalledWith(1, 'All prices in cents.');
+    });
+
+    it('should return 400 when content is missing', async () => {
+      vi.mocked(getProject).mockReturnValue({ id: 1, user_id: testUserId } as never);
+
+      const response = await request(app).put('/api/projects/1/constraints').send({});
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Validation failed');
+    });
+  });
+
+  describe('per-project prompt overrides', () => {
+    beforeEach(() => {
+      vi.mocked(getProject).mockReturnValue({ id: 1, user_id: testUserId } as never);
+    });
+
+    it('GET /:id/prompts lists prompts with override state', async () => {
+      const response = await request(app).get('/api/projects/1/prompts');
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body).toHaveLength(2);
+      expect(response.body[0]).toMatchObject({
+        name: 'implementation',
+        hasProjectOverride: false,
+        hasGlobalOverride: false,
+      });
+    });
+
+    it('GET /:id/prompts/:name returns default + effective + override state', async () => {
+      const response = await request(app).get('/api/projects/1/prompts/implementation');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        name: 'implementation',
+        defaultContent: 'DEFAULT',
+        effectiveContent: 'EFFECTIVE',
+        projectContent: null,
+        variables: ['taskDocPath', 'taskId'],
+      });
+    });
+
+    it('GET /:id/prompts/:name returns 404 for an unknown prompt', async () => {
+      const response = await request(app).get('/api/projects/1/prompts/nope');
+      expect(response.status).toBe(404);
+    });
+
+    it('PUT /:id/prompts/:name saves the project override', async () => {
+      const response = await request(app)
+        .put('/api/projects/1/prompts/implementation')
+        .send({ content: 'CUSTOM {{taskId}}' });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ name: 'implementation', mtime: 123, hasProjectOverride: true });
+      expect(saveProjectOverride).toHaveBeenCalledWith('implementation', 1, 'CUSTOM {{taskId}}');
+    });
+
+    it('PUT /:id/prompts/:name rejects unknown template variables with 400', async () => {
+      vi.mocked(findUnknownVariables).mockReturnValueOnce(['bogus']);
+
+      const response = await request(app)
+        .put('/api/projects/1/prompts/implementation')
+        .send({ content: 'has {{bogus}}' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.unknownVariables).toEqual(['bogus']);
+      expect(saveProjectOverride).not.toHaveBeenCalled();
+    });
+
+    it('PUT /:id/prompts/:name returns 409 on a stale expectedMtime', async () => {
+      vi.mocked(getProjectOverrideMtime).mockReturnValueOnce(999);
+
+      const response = await request(app)
+        .put('/api/projects/1/prompts/implementation')
+        .send({ content: 'CUSTOM', expectedMtime: 1 });
+
+      expect(response.status).toBe(409);
+    });
+
+    it('DELETE /:id/prompts/:name removes the project override', async () => {
+      const response = await request(app).delete('/api/projects/1/prompts/implementation');
+
+      expect(response.status).toBe(204);
+      expect(deleteProjectOverride).toHaveBeenCalledWith('implementation', 1);
     });
   });
 });

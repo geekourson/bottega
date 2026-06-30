@@ -11,6 +11,7 @@ import type {
   ConversationRow,
   ProjectMemberRow,
   ProjectRow,
+  ProjectType,
   Provider,
   TaskRow,
   TaskStatus,
@@ -258,6 +259,33 @@ const runMigrations = (): void => {
     if (!taskColumnNames.includes('ux_design_approved')) {
       console.log('Running migration: Adding ux_design_approved column to tasks');
       db.exec('ALTER TABLE tasks ADD COLUMN ux_design_approved INTEGER DEFAULT 0 NOT NULL');
+    }
+
+    if (!taskColumnNames.includes('uses_worktree')) {
+      console.log('Running migration: Adding uses_worktree column to tasks');
+      db.exec('ALTER TABLE tasks ADD COLUMN uses_worktree INTEGER DEFAULT 0 NOT NULL');
+
+      // Backfill existing tasks from on-disk reality so in-flight tasks keep
+      // their isolation: a task "uses a worktree" if its worktree directory
+      // (`${repo}-worktrees/task-${id}`) currently exists. Tasks without one
+      // were effectively running on main already, so they stay at 0. This is a
+      // one-time best-effort pass; the decision is authoritative from here on.
+      const rows = db
+        .prepare(
+          `SELECT t.id AS id, p.repo_folder_path AS repo
+           FROM tasks t JOIN projects p ON t.project_id = p.id`,
+        )
+        .all() as Array<{ id: number; repo: string }>;
+      const setUsesWorktree = db.prepare('UPDATE tasks SET uses_worktree = 1 WHERE id = ?');
+      let backfilled = 0;
+      for (const row of rows) {
+        const worktreePath = path.join(`${row.repo}-worktrees`, `task-${row.id}`);
+        if (fs.existsSync(worktreePath)) {
+          setUsesWorktree.run(row.id);
+          backfilled++;
+        }
+      }
+      console.log(`Migration: backfilled uses_worktree=1 for ${backfilled} task(s) with an existing worktree`);
     }
 
     try {
@@ -597,6 +625,15 @@ const runMigrations = (): void => {
     if (!projectColumnNames.includes('app_url')) {
       console.log('Running migration: Adding app_url column to projects for "switch server" tab opening');
       db.exec('ALTER TABLE projects ADD COLUMN app_url TEXT DEFAULT NULL');
+    }
+
+    if (!projectColumnNames.includes('project_type')) {
+      console.log("Running migration: Adding project_type column to projects (defaults to 'web')");
+      // SQLite cannot attach a CHECK constraint via ALTER TABLE ADD COLUMN, so
+      // the enum is enforced by the zod boundary + the CHECK in init.sql for
+      // fresh databases. Existing rows default to 'web', preserving today's
+      // web-oriented verification behavior.
+      db.exec("ALTER TABLE projects ADD COLUMN project_type TEXT NOT NULL DEFAULT 'web'");
     }
 
     if (!columnNames.includes('is_admin')) {
@@ -979,12 +1016,14 @@ export interface CreatedProject {
   name: string;
   repoFolderPath: string;
   subprojectPath: string | null;
+  projectType: ProjectType;
 }
 
 export interface ProjectUpdates {
   name?: string;
   repo_folder_path?: string;
   subproject_path?: string | null;
+  project_type?: ProjectType;
 }
 
 export interface WebServerConfig {
@@ -1000,20 +1039,21 @@ const projectsDb = {
     userId: number,
     name: string,
     repoFolderPath: string,
-    subprojectPath: string | null = null
+    subprojectPath: string | null = null,
+    projectType: ProjectType = 'web'
   ): CreatedProject => {
     const insertProject = db.prepare(
-      'INSERT INTO projects (user_id, name, repo_folder_path, subproject_path) VALUES (?, ?, ?, ?)'
+      'INSERT INTO projects (user_id, name, repo_folder_path, subproject_path, project_type) VALUES (?, ?, ?, ?, ?)'
     );
     const insertMember = db.prepare(
       'INSERT INTO project_members (project_id, user_id) VALUES (?, ?)'
     );
 
     const createWithMembership = db.transaction((): CreatedProject => {
-      const result = insertProject.run(userId, name, repoFolderPath, subprojectPath);
+      const result = insertProject.run(userId, name, repoFolderPath, subprojectPath, projectType);
       const projectId = lastInsertId(result.lastInsertRowid);
       insertMember.run(projectId, userId);
-      return { id: projectId, userId, name, repoFolderPath, subprojectPath };
+      return { id: projectId, userId, name, repoFolderPath, subprojectPath, projectType };
     });
 
     return createWithMembership();
@@ -1064,6 +1104,7 @@ const projectsDb = {
       'name',
       'repo_folder_path',
       'subproject_path',
+      'project_type',
     ];
     const setClause: string[] = [];
     const values: unknown[] = [];
@@ -1147,6 +1188,7 @@ export interface CreatedTask {
   title: string | null;
   status: 'pending';
   yolo_mode: 0 | 1;
+  uses_worktree: 0 | 1;
 }
 
 // Result of getAll (joins project name + repo path).
@@ -1161,6 +1203,7 @@ export type TaskWithProject = TaskRow & {
   project_name: string;
   repo_folder_path: string;
   subproject_path: string | null;
+  project_type: ProjectType;
 };
 
 export interface TaskUpdates {
@@ -1172,6 +1215,7 @@ export interface TaskUpdates {
   completed_at?: string | null;
   yolo_mode?: 0 | 1 | boolean;
   ux_review_required?: 0 | 1 | boolean;
+  uses_worktree?: 0 | 1;
 }
 
 const tasksDb = {
@@ -1181,13 +1225,15 @@ const tasksDb = {
     yoloMode: boolean = false,
     userId: number | null = null,
     uxReviewRequired: boolean = false,
+    usesWorktree: boolean = false,
   ): CreatedTask => {
     const stmt = db.prepare(
-      'INSERT INTO tasks (project_id, user_id, title, status, yolo_mode, ux_review_required) VALUES (?, ?, ?, ?, ?, ?)'
+      'INSERT INTO tasks (project_id, user_id, title, status, yolo_mode, ux_review_required, uses_worktree) VALUES (?, ?, ?, ?, ?, ?, ?)'
     );
     const yoloFlag: 0 | 1 = yoloMode ? 1 : 0;
     const uxFlag: 0 | 1 = uxReviewRequired ? 1 : 0;
-    const result = stmt.run(projectId, userId, title, 'pending', yoloFlag, uxFlag);
+    const worktreeFlag: 0 | 1 = usesWorktree ? 1 : 0;
+    const result = stmt.run(projectId, userId, title, 'pending', yoloFlag, uxFlag, worktreeFlag);
     return {
       id: lastInsertId(result.lastInsertRowid),
       projectId,
@@ -1195,6 +1241,7 @@ const tasksDb = {
       title,
       status: 'pending',
       yolo_mode: yoloFlag,
+      uses_worktree: worktreeFlag,
     };
   },
 
@@ -1235,7 +1282,8 @@ const tasksDb = {
                 p.user_id AS project_user_id,
                 p.name AS project_name,
                 p.repo_folder_path,
-                p.subproject_path
+                p.subproject_path,
+                p.project_type
          FROM tasks t
          JOIN projects p ON t.project_id = p.id
          WHERE t.id = ?`
@@ -1253,6 +1301,7 @@ const tasksDb = {
       'completed_at',
       'yolo_mode',
       'ux_review_required',
+      'uses_worktree',
     ];
     const setClause: string[] = [];
     const values: unknown[] = [];

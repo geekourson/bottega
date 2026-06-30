@@ -10,19 +10,43 @@ import {
   saveConversationUpload,
   readProjectReadme,
   writeProjectReadme,
+  readProjectConstraints,
+  writeProjectConstraints,
 } from '../services/documentation.js';
+import {
+  listPromptNames,
+  getPromptDefinition,
+  loadDefault,
+  loadPrompt,
+  hasOverride,
+  hasProjectOverride,
+  loadProjectOverride,
+  saveProjectOverride,
+  deleteProjectOverride,
+  getProjectOverrideMtime,
+  findUnknownVariables,
+} from '../services/promptRenderer.js';
 import { upload } from '../middleware/upload.js';
 import type { ApiError } from '../../shared/api/_common.js';
 import type {
   CreateProjectResponse,
   DeleteProjectResponse,
+  GetProjectConstraintsResponse,
+  GetProjectPromptResponse,
   GetProjectReadmeResponse,
   GetProjectResponse,
+  ListProjectPromptsResponse,
   ListProjectsResponse,
+  SaveProjectPromptResponse,
+  UpdateProjectConstraintsResponse,
   UpdateProjectReadmeResponse,
   UpdateProjectResponse,
   UploadProjectFileResponse,
 } from '../../shared/api/projects.js';
+import type {
+  PromptConcurrentEditError,
+  UnknownVariablesError,
+} from '../../shared/api/settings.js';
 import type { ProjectUpdates } from '../database/db.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 import {
@@ -36,6 +60,10 @@ import {
   type UpdateProjectBody,
   UpdateProjectReadmeBodySchema,
   type UpdateProjectReadmeBody,
+  UpdateProjectConstraintsBodySchema,
+  type UpdateProjectConstraintsBody,
+  UpdateProjectPromptBodySchema,
+  type UpdateProjectPromptBody,
 } from '../../shared/schemas/projects.js';
 import {
   UpdateProjectSettingsBodySchema,
@@ -64,13 +92,15 @@ router.post(
   ) => {
     try {
       const userId = req.user!.id;
-      const { name, repoFolderPath, subprojectPath } = req.validated!.body as CreateProjectBody;
+      const { name, repoFolderPath, subprojectPath, projectType } =
+        req.validated!.body as CreateProjectBody;
 
       const project = projectsDb.create(
         userId,
         name.trim(),
         repoFolderPath.trim(),
         subprojectPath?.trim() || null,
+        projectType,
       );
 
       // The pre-TS handler returned the `projectsDb.create` summary
@@ -135,6 +165,9 @@ router.put(
       }
       if (body.subprojectPath !== undefined) {
         updates.subproject_path = body.subprojectPath?.trim() || null;
+      }
+      if (body.projectType !== undefined) {
+        updates.project_type = body.projectType;
       }
 
       const project = updateProject(projectId, userId, updates);
@@ -316,6 +349,210 @@ router.put(
     } catch (error) {
       console.error('Error writing project README:', error);
       res.status(500).json({ error: 'Failed to write project README' });
+    }
+  },
+);
+
+// GET /projects/:id/constraints
+router.get(
+  '/:id/constraints',
+  validateParams(IdParamsSchema),
+  (req: Request, res: Response<GetProjectConstraintsResponse | ApiError>) => {
+    try {
+      const userId = req.user!.id;
+      const { id: projectId } = req.validated!.params as IdParams;
+
+      const project = getProject(projectId, userId);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      const content = readProjectConstraints(projectId);
+      res.json({ content });
+    } catch (error) {
+      console.error('Error reading project constraints:', error);
+      res.status(500).json({ error: 'Failed to read project constraints' });
+    }
+  },
+);
+
+// PUT /projects/:id/constraints
+router.put(
+  '/:id/constraints',
+  validateParams(IdParamsSchema),
+  validateBody(UpdateProjectConstraintsBodySchema),
+  (req: Request, res: Response<UpdateProjectConstraintsResponse | ApiError>) => {
+    try {
+      const userId = req.user!.id;
+      const { id: projectId } = req.validated!.params as IdParams;
+      const { content } = req.validated!.body as UpdateProjectConstraintsBody;
+
+      const project = getProject(projectId, userId);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      writeProjectConstraints(projectId, content);
+      res.json({ content });
+    } catch (error) {
+      console.error('Error writing project constraints:', error);
+      res.status(500).json({ error: 'Failed to write project constraints' });
+    }
+  },
+);
+
+// GET /projects/:id/prompts — list agent prompts with per-project override state
+router.get(
+  '/:id/prompts',
+  validateParams(IdParamsSchema),
+  (req: Request, res: Response<ListProjectPromptsResponse | ApiError>) => {
+    try {
+      const userId = req.user!.id;
+      const { id: projectId } = req.validated!.params as IdParams;
+
+      const project = getProject(projectId, userId);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      const prompts: ListProjectPromptsResponse = listPromptNames().map((name) => {
+        const def = getPromptDefinition(name)!;
+        return {
+          name,
+          label: def.label,
+          kind: def.kind,
+          hasProjectOverride: hasProjectOverride(name, projectId),
+          hasGlobalOverride: hasOverride(name),
+        };
+      });
+      res.json(prompts);
+    } catch (error) {
+      console.error('Error listing project prompts:', error);
+      res.status(500).json({ error: 'Failed to list project prompts' });
+    }
+  },
+);
+
+// GET /projects/:id/prompts/:name — default + project override + effective content
+router.get(
+  '/:id/prompts/:name',
+  validateParams(IdParamsSchema),
+  (req: Request, res: Response<GetProjectPromptResponse | ApiError>) => {
+    try {
+      const userId = req.user!.id;
+      const { id: projectId } = req.validated!.params as IdParams;
+
+      const project = getProject(projectId, userId);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      const def = getPromptDefinition(req.params.name as string);
+      if (!def) {
+        return res.status(404).json({ error: 'Unknown prompt' });
+      }
+
+      res.json({
+        name: def.name,
+        label: def.label,
+        kind: def.kind,
+        variables: def.variables,
+        defaultContent: loadDefault(def.name),
+        projectContent: loadProjectOverride(def.name, projectId),
+        // Effective content follows project → global → default.
+        effectiveContent: loadPrompt(def.name, projectId),
+        hasProjectOverride: hasProjectOverride(def.name, projectId),
+        hasGlobalOverride: hasOverride(def.name),
+        mtime: getProjectOverrideMtime(def.name, projectId),
+      });
+    } catch (error) {
+      console.error('Error reading project prompt:', error);
+      res.status(500).json({ error: 'Failed to read project prompt' });
+    }
+  },
+);
+
+// PUT /projects/:id/prompts/:name — save the per-project override
+router.put(
+  '/:id/prompts/:name',
+  validateParams(IdParamsSchema),
+  validateBody(UpdateProjectPromptBodySchema),
+  (
+    req: Request,
+    res: Response<
+      SaveProjectPromptResponse | ApiError | UnknownVariablesError | PromptConcurrentEditError
+    >,
+  ) => {
+    try {
+      const userId = req.user!.id;
+      const { id: projectId } = req.validated!.params as IdParams;
+
+      const project = getProject(projectId, userId);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      const def = getPromptDefinition(req.params.name as string);
+      if (!def) {
+        return res.status(404).json({ error: 'Unknown prompt' });
+      }
+
+      const { content, expectedMtime } = req.validated!.body as UpdateProjectPromptBody;
+
+      // An override must only reference variables the prompt actually defines,
+      // otherwise render() throws at agent-run time.
+      const unknown = findUnknownVariables(def.name, content);
+      if (unknown.length > 0) {
+        return res.status(400).json({
+          error: 'Unknown template variables',
+          unknownVariables: unknown,
+          allowedVariables: def.variables,
+        });
+      }
+
+      if (expectedMtime != null) {
+        const current = getProjectOverrideMtime(def.name, projectId);
+        if (current !== null && current !== expectedMtime) {
+          return res.status(409).json({
+            error: 'Prompt was modified by another tab. Reload before saving.',
+            currentMtime: current,
+          });
+        }
+      }
+
+      const mtime = saveProjectOverride(def.name, projectId, content);
+      res.json({ name: def.name, mtime, hasProjectOverride: true });
+    } catch (error) {
+      console.error('Error saving project prompt:', error);
+      res.status(500).json({ error: 'Failed to save project prompt' });
+    }
+  },
+);
+
+// DELETE /projects/:id/prompts/:name — drop the per-project override
+router.delete(
+  '/:id/prompts/:name',
+  validateParams(IdParamsSchema),
+  (req: Request, res: Response<ApiError | undefined>) => {
+    try {
+      const userId = req.user!.id;
+      const { id: projectId } = req.validated!.params as IdParams;
+
+      const project = getProject(projectId, userId);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      const def = getPromptDefinition(req.params.name as string);
+      if (!def) {
+        return res.status(404).json({ error: 'Unknown prompt' });
+      }
+
+      deleteProjectOverride(def.name, projectId);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting project prompt override:', error);
+      res.status(500).json({ error: 'Failed to delete project prompt override' });
     }
   },
 );

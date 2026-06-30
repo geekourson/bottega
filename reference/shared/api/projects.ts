@@ -4,7 +4,7 @@
 //  - /api/projects/:id/web-server*      (mounted via webServer.js)
 //  - /api/projects/:id/files            (inline handler in server/index.js)
 
-import type { ProjectRow } from '../types/db';
+import type { ProjectRow, ProjectType } from '../types/db';
 import { expectType } from './_common';
 
 // ---- Project CRUD ---------------------------------------------------------
@@ -23,6 +23,7 @@ export interface CreateProjectRequest {
   name: string;
   repoFolderPath: string;
   subprojectPath?: string;
+  projectType?: ProjectType;
 }
 
 export type CreateProjectResponse = ProjectRow;
@@ -31,6 +32,7 @@ export interface UpdateProjectRequest {
   name?: string | undefined;
   repoFolderPath?: string | undefined;
   subprojectPath?: string | undefined;
+  projectType?: ProjectType | undefined;
 }
 
 export type UpdateProjectResponse = ProjectRow;
@@ -51,6 +53,58 @@ export interface GetProjectReadmeResponse {
 }
 
 export type UpdateProjectReadmeResponse = GetProjectReadmeResponse;
+
+// ---- Constraints ------------------------------------------------------------
+//
+// Per-project business constraints. Unlike the README these live in the central
+// archive (private, not committed) and are surfaced to every agent as an
+// authoritative "## Project Constraints" system-prompt section.
+
+export interface GetProjectConstraintsResponse {
+  content: string;
+}
+
+export type UpdateProjectConstraintsResponse = GetProjectConstraintsResponse;
+
+// ---- Per-project prompt overrides (Tier 2) ---------------------------------
+//
+// A project can fully replace an agent prompt. Resolution at render time is
+// project override → user-global override → bundled default. These endpoints
+// edit the project layer only; `hasGlobalOverride` is surfaced so the UI can
+// explain what a reset falls back to.
+
+export interface ProjectPromptListItem {
+  name: string;
+  label: string;
+  kind: string;
+  hasProjectOverride: boolean;
+  hasGlobalOverride: boolean;
+}
+
+export type ListProjectPromptsResponse = ProjectPromptListItem[];
+
+export interface GetProjectPromptResponse {
+  name: string;
+  label: string;
+  kind: string;
+  variables: string[];
+  // Bundled default content.
+  defaultContent: string;
+  // The project override body, or null when no project override exists.
+  projectContent: string | null;
+  // The content actually used at render time (project → global → default).
+  effectiveContent: string;
+  hasProjectOverride: boolean;
+  hasGlobalOverride: boolean;
+  // mtime of the project override; null when there is no project override.
+  mtime: number | null;
+}
+
+export interface SaveProjectPromptResponse {
+  name: string;
+  mtime: number;
+  hasProjectOverride: true;
+}
 
 // ---- Files ----------------------------------------------------------------
 

@@ -66,52 +66,61 @@ export async function generatePlanificationMessage(
   taskDocPath: string,
   taskId: number,
   isTechnical: boolean = true,
+  projectId?: number,
 ): Promise<string> {
   const promptName = isTechnical ? 'planification' : 'planification-nontechnical';
-  const planTemplatePath = resolvePromptPath('plan-template');
-  return renderPrompt(promptName, { taskDocPath, taskId, planTemplatePath });
+  const planTemplatePath = resolvePromptPath('plan-template', projectId);
+  return renderPrompt(promptName, { taskDocPath, taskId, planTemplatePath }, projectId);
 }
 
 export async function generateImplementationMessage(
   taskDocPath: string,
   taskId: number,
+  projectId?: number,
 ): Promise<string> {
-  return renderPrompt('implementation', { taskDocPath, taskId });
+  return renderPrompt('implementation', { taskDocPath, taskId }, projectId);
 }
 
-export async function generateReviewMessage(taskDocPath: string, taskId: number): Promise<string> {
-  return renderPrompt('review', { taskDocPath, taskId });
+export async function generateReviewMessage(
+  taskDocPath: string,
+  taskId: number,
+  projectId?: number,
+): Promise<string> {
+  return renderPrompt('review', { taskDocPath, taskId }, projectId);
 }
 
 export async function generateRefinementMessage(
   taskDocPath: string,
   taskId: number,
+  projectId?: number,
 ): Promise<string> {
-  return renderPrompt('refinement', { taskDocPath, taskId });
+  return renderPrompt('refinement', { taskDocPath, taskId }, projectId);
 }
 
 export async function generatePrAgentMessage(
   taskDocPath: string,
   taskId: number,
   prUrl: string | null | undefined,
+  projectId?: number,
 ): Promise<string> {
   const prContextLine = prUrl
     ? `- Existing PR: ${prUrl}`
     : '- No PR exists yet - you need to create one';
   const prCreateOrVerifyBlock = buildPrCreateOrVerifyBlock(taskId, prUrl);
-  return renderPrompt('pr', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock });
+  return renderPrompt('pr', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock }, projectId);
 }
 
 export async function generateYoloMessage(
   taskDocPath: string,
   taskId: number,
   prUrl: string | null | undefined,
+  projectId?: number,
 ): Promise<string> {
   const prContextLine = prUrl
     ? `- Existing PR: ${prUrl}`
     : '- No PR exists yet - you will create one at the end';
   const prCreateOrVerifyBlock = buildPrCreateOrVerifyBlock(taskId, prUrl);
-  return renderPrompt('yolo', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock });
+  return renderPrompt('yolo', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock }, projectId);
 }
 
 export async function generatePrAgentCommentMessage(
@@ -119,6 +128,7 @@ export async function generatePrAgentCommentMessage(
   taskId: number,
   prUrl: string | null | undefined,
   webhookContext: CommentWebhookContext,
+  projectId?: number,
 ): Promise<string> {
   const { commentBody, commentAuthor, fileContext } = webhookContext || {};
 
@@ -159,7 +169,7 @@ ${fileContext.diffHunk}
 ${quotedComment}
 ${fileLocationSection}`;
 
-  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection });
+  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection }, projectId);
 }
 
 export async function generatePrAgentReviewMessage(
@@ -167,6 +177,7 @@ export async function generatePrAgentReviewMessage(
   taskId: number,
   prUrl: string | null | undefined,
   webhookContext: ReviewWebhookContext,
+  projectId?: number,
 ): Promise<string> {
   const { reviewBody, reviewAuthor, comments } = webhookContext || {};
 
@@ -224,14 +235,15 @@ ${commentEntries}
 
   const feedbackSection = `## User Feedback${reviewBodySection}${inlineCommentsSection}`;
 
-  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection });
+  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection }, projectId);
 }
 
 export async function generateUxDesignMessage(
   taskDocPath: string,
   taskId: number,
+  projectId?: number,
 ): Promise<string> {
-  return renderPrompt('ux-design', { taskDocPath, taskId });
+  return renderPrompt('ux-design', { taskDocPath, taskId }, projectId);
 }
 
 export async function generatePoMessage(
@@ -258,7 +270,7 @@ export async function generatePoMessage(
     ? `## Focus instructions from the user\n\n${trimmed}\n\n`
     : '';
 
-  return renderPrompt('po', { projectId, repoPath, existingTasks, createTaskScriptPath, userInstructions });
+  return renderPrompt('po', { projectId, repoPath, existingTasks, createTaskScriptPath, userInstructions }, projectId);
 }
 
 /**

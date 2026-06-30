@@ -10,10 +10,13 @@ import { X, FolderOpen } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import FolderPickerModal from './FolderPickerModal';
+import { PROJECT_TYPE_OPTIONS } from '../constants/projectTypes';
+import type { ProjectType } from '../../shared/types/db';
 
 export interface ProjectFormSubmitData {
   name: string;
   repoFolderPath: string;
+  projectType: ProjectType;
 }
 
 export interface ProjectFormSubmitResult {
@@ -36,6 +39,7 @@ function ProjectForm({
 }: ProjectFormProps) {
   const [name, setName] = useState('');
   const [repoFolderPath, setRepoFolderPath] = useState('');
+  const [projectType, setProjectType] = useState<ProjectType>('web');
   const [error, setError] = useState<string | null>(null);
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
 
@@ -43,6 +47,7 @@ function ProjectForm({
     if (isOpen) {
       setName('');
       setRepoFolderPath('');
+      setProjectType('web');
       setError(null);
     }
   }, [isOpen]);
@@ -65,6 +70,7 @@ function ProjectForm({
       const result = await onSubmit({
         name: name.trim(),
         repoFolderPath: repoFolderPath.trim(),
+        projectType,
       });
 
       if (!result.success) {
@@ -151,6 +157,29 @@ function ProjectForm({
               onSelect={(path) => setRepoFolderPath(path)}
               initialPath={repoFolderPath || undefined}
             />
+
+            {/* Project type */}
+            <div className="space-y-2">
+              <label htmlFor="project-type" className="text-sm font-medium text-foreground">
+                Project Type
+              </label>
+              <select
+                id="project-type"
+                value={projectType}
+                onChange={(e) => setProjectType(e.target.value as ProjectType)}
+                className="w-full h-10 px-3 appearance-none bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 cursor-pointer"
+                data-testid="project-type-select"
+              >
+                {PROJECT_TYPE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                {PROJECT_TYPE_OPTIONS.find((o) => o.value === projectType)?.description}
+              </p>
+            </div>
 
             {/* Actions */}
             <div className="flex gap-2 pt-4">

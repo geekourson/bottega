@@ -14,6 +14,9 @@ import {
   getDevServerPort,
   ensureTmpFolder,
   saveConversationUpload,
+  readProjectConstraints,
+  writeProjectConstraints,
+  getProjectConstraintsPath,
   _internal
 } from './documentation.js';
 
@@ -222,6 +225,115 @@ describe('Documentation Service - Phase 2', () => {
       expect(result1).not.toContain(getTaskDocPath(testProjectId, 2));
       expect(result2).toContain(getTaskDocPath(testProjectId, 2));
       expect(result2).not.toContain(getTaskDocPath(testProjectId, 1));
+    });
+
+    describe('Verification Profile (project type)', () => {
+      it('defaults to web: dev server + Playwright', () => {
+        const result = buildContextPrompt(testProjectId, 1);
+
+        expect(result).toContain('Verification Profile (project type: web)');
+        expect(result).toContain('Dev Server Port:** 3101');
+        expect(result).toContain('Playwright');
+        expect(result).toContain('http://localhost:3101');
+      });
+
+      it('web (explicit) matches the default behavior', () => {
+        const explicit = buildContextPrompt(testProjectId, 1, undefined, 'web');
+        const def = buildContextPrompt(testProjectId, 1);
+        expect(explicit).toBe(def);
+      });
+
+      // Non-web profiles must NOT carry the web-only positive Playwright
+      // instruction. They may still mention "Do NOT use Playwright" as guidance,
+      // so we assert on the web-only run instruction rather than the bare word.
+      const WEB_PLAYWRIGHT_INSTRUCTION = 'Run Playwright tests against';
+
+      it('api: dev server + curl, but no browser test flow', () => {
+        const result = buildContextPrompt(testProjectId, 1, undefined, 'api');
+
+        expect(result).toContain('Verification Profile (project type: api)');
+        expect(result).toContain('Dev Server Port:** 3101');
+        expect(result).toContain('curl');
+        expect(result).not.toContain(WEB_PLAYWRIGHT_INSTRUCTION);
+      });
+
+      it('cli: command output, no dev server, no browser test flow', () => {
+        const result = buildContextPrompt(testProjectId, 1, undefined, 'cli');
+
+        expect(result).toContain('Verification Profile (project type: cli)');
+        expect(result).not.toContain('Dev Server Port');
+        expect(result).not.toContain(WEB_PLAYWRIGHT_INSTRUCTION);
+      });
+
+      it('library: unit tests only, no dev server, no browser test flow', () => {
+        const result = buildContextPrompt(testProjectId, 1, undefined, 'library');
+
+        expect(result).toContain('Verification Profile (project type: library)');
+        expect(result).not.toContain('Dev Server Port');
+        expect(result).not.toContain(WEB_PLAYWRIGHT_INSTRUCTION);
+      });
+
+      it('game: build + launch, no web browser test flow', () => {
+        const result = buildContextPrompt(testProjectId, 1, undefined, 'game');
+
+        expect(result).toContain('Verification Profile (project type: game)');
+        expect(result).not.toContain(WEB_PLAYWRIGHT_INSTRUCTION);
+      });
+
+      // The common "Test Execution Best Practices" subsection is type-agnostic.
+      it.each(['web', 'api', 'cli', 'library', 'game'] as const)(
+        'keeps Test Execution Best Practices for %s',
+        (type) => {
+          const result = buildContextPrompt(testProjectId, 1, undefined, type);
+          expect(result).toContain('Test Execution Best Practices');
+        },
+      );
+    });
+
+    describe('Project Constraints section', () => {
+      it('omits the constraints section when none are set', () => {
+        const result = buildContextPrompt(testProjectId, 1);
+        expect(result).not.toContain('## Project Constraints');
+      });
+
+      it('omits the constraints section when the file is whitespace-only', () => {
+        writeProjectConstraints(testProjectId, '   \n  \n');
+        const result = buildContextPrompt(testProjectId, 1);
+        expect(result).not.toContain('## Project Constraints');
+      });
+
+      it('injects an authoritative constraints section when set', () => {
+        writeProjectConstraints(testProjectId, 'Never touch the billing module.');
+        const result = buildContextPrompt(testProjectId, 1);
+
+        expect(result).toContain('## Project Constraints (authoritative)');
+        expect(result).toContain('MUST / MUST NOT');
+        expect(result).toContain('Never touch the billing module.');
+        // The agent must be told not to edit them.
+        expect(result).toMatch(/Do NOT edit/i);
+      });
+    });
+  });
+
+  describe('project constraints read/write', () => {
+    it('returns empty string when no constraints file exists', () => {
+      expect(readProjectConstraints(testProjectId)).toBe('');
+    });
+
+    it('persists and reads back constraints, creating the archive dir', () => {
+      const constraintsPath = getProjectConstraintsPath(testProjectId);
+      expect(fs.existsSync(constraintsPath)).toBe(false);
+
+      writeProjectConstraints(testProjectId, 'All prices are stored in cents.');
+
+      expect(fs.existsSync(constraintsPath)).toBe(true);
+      expect(readProjectConstraints(testProjectId)).toBe('All prices are stored in cents.');
+    });
+
+    it('stores constraints in the central archive, not in any repo', () => {
+      const constraintsPath = getProjectConstraintsPath(testProjectId);
+      expect(constraintsPath).toContain(path.join('projects', String(testProjectId)));
+      expect(constraintsPath.endsWith('constraints.md')).toBe(true);
     });
   });
 

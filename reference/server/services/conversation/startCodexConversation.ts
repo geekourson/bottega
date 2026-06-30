@@ -32,7 +32,7 @@
 import { promises as fs } from 'fs';
 import { conversationsDb, tasksDb } from '../../database/db.js';
 import { resolveResumeModelEffort } from '../agentModelSettings.js';
-import { getWorktreeProjectPath, worktreeExists } from '../worktree.js';
+import { resolveTaskWorkingDir } from '../worktree.js';
 import { generateConversationTitle } from '../titleGenerator.js';
 import { createContextUsageTracker } from '../contextUsageTracker.js';
 import { getCredentialStore } from '../credentials/registry.js';
@@ -222,14 +222,13 @@ export async function sendCodexMessage(
   if (conversation.session_path) {
     projectPath = conversation.session_path;
   } else {
-    projectPath = taskWithProject.repo_folder_path;
-    if (await worktreeExists(projectPath, taskId!)) {
-      projectPath = getWorktreeProjectPath(
-        projectPath,
-        taskId!,
-        taskWithProject.subproject_path,
-      );
-    }
+    projectPath = await resolveTaskWorkingDir({
+      taskId: taskId!,
+      repoFolderPath: taskWithProject.repo_folder_path,
+      subprojectPath: taskWithProject.subproject_path,
+      usesWorktree: taskWithProject.uses_worktree === 1,
+      title: taskWithProject.title,
+    });
   }
 
   const codexEnv = getCredentialStore('openai').buildSdkEnv(userId);
@@ -368,10 +367,13 @@ export async function startCodexConversation(
     throw new Error(`Task ${taskId} not found`);
   }
 
-  let projectPath = taskWithProject.repo_folder_path;
-  if (await worktreeExists(projectPath, taskId)) {
-    projectPath = getWorktreeProjectPath(projectPath, taskId, taskWithProject.subproject_path);
-  }
+  const projectPath = await resolveTaskWorkingDir({
+    taskId,
+    repoFolderPath: taskWithProject.repo_folder_path,
+    subprojectPath: taskWithProject.subproject_path,
+    usesWorktree: taskWithProject.uses_worktree === 1,
+    title: taskWithProject.title,
+  });
 
   // Per-user CODEX_HOME. Throws if the user has no provisioned auth.json,
   // matching the Claude path's fail-closed posture.

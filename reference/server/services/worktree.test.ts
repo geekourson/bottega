@@ -54,6 +54,7 @@ import {
   hasUncommittedChanges,
   commitAllChanges,
   pushChanges,
+  resolveTaskWorkingDir,
 } from './worktree.js';
 
 // Helper: configure mockRunCommand to dispatch on (cmd, args) so each test
@@ -657,6 +658,100 @@ describe('Worktree Service', () => {
         (c) => c[0] === 'git' && (c[1] as string[])[0] === 'push',
       );
       expect(pushCall![1]).toEqual(['push', 'origin', 'task/1-test']);
+    });
+  });
+
+  describe('resolveTaskWorkingDir', () => {
+    beforeEach(() => {
+      vi.mocked(mockExistsSync).mockReturnValue(false);
+      vi.mocked(mockMkdir).mockResolvedValue(undefined);
+      vi.mocked(mockSymlink).mockResolvedValue(undefined);
+    });
+
+    it('returns the main repo path when the task does not use a worktree', async () => {
+      const dir = await resolveTaskWorkingDir({
+        taskId: 5,
+        repoFolderPath: '/home/user/repo',
+        subprojectPath: null,
+        usesWorktree: false,
+      });
+
+      expect(dir).toBe('/home/user/repo');
+      // No filesystem probe and no git worktree creation for a main-repo task.
+      expect(mockAccess).not.toHaveBeenCalled();
+      expect(mockRunCommand).not.toHaveBeenCalled();
+    });
+
+    it('returns the existing worktree path without recreating it', async () => {
+      vi.mocked(mockAccess).mockResolvedValue(undefined); // worktree dir exists
+
+      const dir = await resolveTaskWorkingDir({
+        taskId: 7,
+        repoFolderPath: '/home/user/repo',
+        subprojectPath: null,
+        usesWorktree: true,
+      });
+
+      expect(dir).toBe('/home/user/repo-worktrees/task-7');
+      // No `git worktree add` since the worktree already exists.
+      const addCall = mockRunCommand.mock.calls.find(
+        (c) => c[0] === 'git' && (c[1] as string[]).includes('worktree') && (c[1] as string[]).includes('add'),
+      );
+      expect(addCall).toBeUndefined();
+    });
+
+    it('applies the subproject path inside the worktree', async () => {
+      vi.mocked(mockAccess).mockResolvedValue(undefined);
+
+      const dir = await resolveTaskWorkingDir({
+        taskId: 7,
+        repoFolderPath: '/home/user/repo',
+        subprojectPath: 'packages/app',
+        usesWorktree: true,
+      });
+
+      expect(dir).toBe('/home/user/repo-worktrees/task-7/packages/app');
+    });
+
+    it('recreates a missing worktree rather than falling back to main', async () => {
+      vi.mocked(mockAccess).mockRejectedValue(new Error('ENOENT')); // worktree missing
+      withDispatch(async (_cmd, args) => {
+        if (args.includes('symbolic-ref')) return { stdout: 'refs/remotes/origin/main\n', stderr: '' };
+        return { stdout: '', stderr: '' };
+      });
+
+      const dir = await resolveTaskWorkingDir({
+        taskId: 9,
+        repoFolderPath: '/home/user/repo',
+        subprojectPath: null,
+        usesWorktree: true,
+        title: 'Add login',
+      });
+
+      expect(dir).toBe('/home/user/repo-worktrees/task-9');
+      const addCall = mockRunCommand.mock.calls.find(
+        (c) => c[0] === 'git' && (c[1] as string[]).includes('worktree') && (c[1] as string[]).includes('add'),
+      );
+      expect(addCall).toBeDefined();
+    });
+
+    it('throws (never returns main) when recreation fails', async () => {
+      vi.mocked(mockAccess).mockRejectedValue(new Error('ENOENT'));
+      // Make `git worktree add` fail so createWorktree returns { success: false }.
+      withDispatch(async (_cmd, args) => {
+        if (args.includes('symbolic-ref')) return { stdout: 'main\n', stderr: '' };
+        if (args.includes('worktree')) throw new Error('git worktree add failed');
+        return { stdout: '', stderr: '' };
+      });
+
+      await expect(
+        resolveTaskWorkingDir({
+          taskId: 11,
+          repoFolderPath: '/home/user/repo',
+          subprojectPath: null,
+          usesWorktree: true,
+        }),
+      ).rejects.toThrow(/Refusing to run on the main repo/);
     });
   });
 });

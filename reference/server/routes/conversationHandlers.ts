@@ -5,7 +5,7 @@
 // builders.
 
 import type { Request, Response } from 'express';
-import { getWorktreeProjectPath, worktreeExists } from '../services/worktree.js';
+import { resolveTaskWorkingDir } from '../services/worktree.js';
 import { hasProjectAccess } from '../services/projectService.js';
 import { validateClaudeCredentials } from '../services/claudeCredentials.js';
 import type {
@@ -21,6 +21,10 @@ interface EntityWithProject {
   project_id: number;
   repo_folder_path: string;
   subproject_path?: string | null;
+  // Task-backed entities carry the persisted worktree decision + title (the PO
+  // session adapter omits them → undefined → runs on main, which is correct).
+  uses_worktree?: number;
+  title?: string | null;
 }
 
 interface ConversationRecord {
@@ -185,13 +189,14 @@ export function createConversationHandler(adapter: ConversationAdapter) {
       let effectivePath = entityWithProject.repo_folder_path;
       if (adapter.getWorktreeTaskId) {
         const taskId = adapter.getWorktreeTaskId(entityId);
-        if (await worktreeExists(effectivePath, taskId)) {
-          effectivePath = getWorktreeProjectPath(
-            effectivePath,
-            taskId,
-            entityWithProject.subproject_path ?? null,
-          );
-        }
+        // Honor the task's persisted worktree decision (never probe the FS).
+        effectivePath = await resolveTaskWorkingDir({
+          taskId,
+          repoFolderPath: entityWithProject.repo_folder_path,
+          subprojectPath: entityWithProject.subproject_path ?? null,
+          usesWorktree: entityWithProject.uses_worktree === 1,
+          title: entityWithProject.title ?? null,
+        });
       }
 
       const customSystemPrompt = adapter.buildSystemPrompt

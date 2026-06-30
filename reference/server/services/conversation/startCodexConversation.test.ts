@@ -32,6 +32,7 @@ vi.mock('../agentModelSettings.js', () => ({
 vi.mock('../worktree.js', () => ({
   worktreeExists: vi.fn(async () => false),
   getWorktreeProjectPath: vi.fn((p: string) => p),
+  resolveTaskWorkingDir: vi.fn(async (input: { repoFolderPath: string }) => input.repoFolderPath),
 }));
 
 vi.mock('../titleGenerator.js', () => ({

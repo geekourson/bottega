@@ -172,18 +172,25 @@ export function getOverrideMtime(name: string): number | null {
   return fs.statSync(p).mtimeMs;
 }
 
-export function loadPrompt(name: string): string {
+export function loadPrompt(name: string, projectId?: number): string {
+  if (projectId != null) {
+    const projectOverride = loadProjectOverride(name, projectId);
+    if (projectOverride !== null) return projectOverride;
+  }
   const override = loadOverride(name);
   if (override !== null) return override;
   return loadDefault(name);
 }
 
 /**
- * Return the absolute path to the active version of a prompt or template:
- * the override path if an override exists, otherwise the bundled default path.
+ * Return the absolute path to the active version of a prompt or template,
+ * following the project → user-global → bundled-default resolution order.
  * Used to inject e.g. `@{{planTemplatePath}}` references into other prompts.
  */
-export function resolvePromptPath(name: string): string {
+export function resolvePromptPath(name: string, projectId?: number): string {
+  if (projectId != null && hasProjectOverride(name, projectId)) {
+    return projectOverridePath(name, projectId);
+  }
   return hasOverride(name) ? overridePath(name) : defaultPath(name);
 }
 
@@ -200,6 +207,59 @@ export function saveOverride(name: string, content: string): number {
 
 export function deleteOverride(name: string): boolean {
   const p = overridePath(name);
+  if (fs.existsSync(p)) {
+    fs.unlinkSync(p);
+    return true;
+  }
+  return false;
+}
+
+// ---- Per-project overrides (Tier 2) ----------------------------------------
+//
+// A project may fully replace an agent prompt with its own version, stored in
+// the central archive at ~/.bottega/projects/{id}/prompts/{name}.md (private,
+// never committed). Resolution order is project → user-global → bundled default
+// (see loadPrompt). These mirror the global override helpers above but key on a
+// projectId.
+
+function projectOverridesDir(projectId: number, kind: PromptKind): string {
+  return path.join(getArchiveRoot(), 'projects', String(projectId), dirNameForKind(kind));
+}
+
+function projectOverridePath(name: string, projectId: number): string {
+  const def = requireDef(name);
+  return path.join(projectOverridesDir(projectId, def.kind), def.file);
+}
+
+export function hasProjectOverride(name: string, projectId: number): boolean {
+  return fs.existsSync(projectOverridePath(name, projectId));
+}
+
+export function loadProjectOverride(name: string, projectId: number): string | null {
+  const p = projectOverridePath(name, projectId);
+  if (!fs.existsSync(p)) return null;
+  return fs.readFileSync(p, 'utf8');
+}
+
+export function getProjectOverrideMtime(name: string, projectId: number): number | null {
+  const p = projectOverridePath(name, projectId);
+  if (!fs.existsSync(p)) return null;
+  return fs.statSync(p).mtimeMs;
+}
+
+export function saveProjectOverride(name: string, projectId: number, content: string): number {
+  const def = requireDef(name);
+  const dir = projectOverridesDir(projectId, def.kind);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const p = projectOverridePath(name, projectId);
+  fs.writeFileSync(p, content, 'utf8');
+  return fs.statSync(p).mtimeMs;
+}
+
+export function deleteProjectOverride(name: string, projectId: number): boolean {
+  const p = projectOverridePath(name, projectId);
   if (fs.existsSync(p)) {
     fs.unlinkSync(p);
     return true;
@@ -253,8 +313,14 @@ export function findUnknownVariables(name: string, content: string): string[] {
 }
 
 /**
- * Convenience: load a prompt by name and render with vars.
+ * Convenience: load a prompt by name and render with vars. When `projectId` is
+ * given, a per-project override takes precedence over the user-global override
+ * and the bundled default.
  */
-export function renderPrompt(name: string, vars: Record<string, unknown>): string {
-  return render(loadPrompt(name), vars);
+export function renderPrompt(
+  name: string,
+  vars: Record<string, unknown>,
+  projectId?: number,
+): string {
+  return render(loadPrompt(name, projectId), vars);
 }

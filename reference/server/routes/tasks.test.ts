@@ -261,6 +261,11 @@ describe('Tasks Routes - Phase 3', () => {
   });
 
   describe('POST /api/projects/:projectId/tasks', () => {
+    beforeEach(() => {
+      // Default these create tests to a non-git repo → uses_worktree = false.
+      vi.mocked(isGitRepository).mockResolvedValue(false);
+    });
+
     it('should create a new task', async () => {
       const mockProject = { id: 1, project_id: 1, repo_folder_path: '/path/1' };
       const newTask = { id: 1, projectId: 1, title: 'New Task' };
@@ -274,8 +279,30 @@ describe('Tasks Routes - Phase 3', () => {
 
       expect(response.status).toBe(201);
       expect(response.body).toEqual(newTask);
-      expect(tasksDb.create).toHaveBeenCalledWith(1, 'New Task', false, testUserId, false);
+      // 6th arg = usesWorktree, false for a non-git repo.
+      expect(tasksDb.create).toHaveBeenCalledWith(1, 'New Task', false, testUserId, false, false);
       expect(writeTaskDoc).toHaveBeenCalledWith(1, 1, '');
+    });
+
+    it('should persist uses_worktree=true when the repo is a git repository', async () => {
+      const mockProject = { id: 1, project_id: 1, repo_folder_path: '/path/1' };
+      const newTask = { id: 7, projectId: 1, title: 'Git Task' };
+      vi.mocked(getProject).mockReturnValue(mockProject as never);
+      vi.mocked(tasksDb.create).mockReturnValue(newTask as never);
+      vi.mocked(writeTaskDoc).mockReturnValue(undefined);
+      vi.mocked(isGitRepository).mockResolvedValue(true);
+      vi.mocked(createWorktree).mockResolvedValue({
+        success: true,
+        worktreePath: '/path/1-worktrees/task-7',
+        branch: 'task/7-git-task',
+      } as never);
+
+      const response = await request(app)
+        .post('/api/projects/1/tasks')
+        .send({ title: 'Git Task' });
+
+      expect(response.status).toBe(201);
+      expect(tasksDb.create).toHaveBeenCalledWith(1, 'Git Task', false, testUserId, false, true);
     });
 
     it('should create a task without title', async () => {
@@ -289,7 +316,7 @@ describe('Tasks Routes - Phase 3', () => {
         .send({});
 
       expect(response.status).toBe(201);
-      expect(tasksDb.create).toHaveBeenCalledWith(1, null, false, testUserId, false);
+      expect(tasksDb.create).toHaveBeenCalledWith(1, null, false, testUserId, false, false);
     });
 
     it('should forward yolo_mode=true when provided in body', async () => {
@@ -304,7 +331,7 @@ describe('Tasks Routes - Phase 3', () => {
         .send({ title: 'YOLO Task', yolo_mode: true });
 
       expect(response.status).toBe(201);
-      expect(tasksDb.create).toHaveBeenCalledWith(1, 'YOLO Task', true, testUserId, false);
+      expect(tasksDb.create).toHaveBeenCalledWith(1, 'YOLO Task', true, testUserId, false, false);
     });
 
     it('should return 404 if project not found', async () => {

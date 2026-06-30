@@ -11,11 +11,12 @@ import { Dashboard } from '../components/Dashboard';
 import Settings, { type SettingsTab } from '../components/Settings';
 import ProjectForm from '../components/ProjectForm';
 import { useTaskContext } from '../contexts/TaskContext';
-import type { ProjectRow, TaskRow } from '../../shared/types/db';
+import type { ProjectRow, ProjectType, TaskRow } from '../../shared/types/db';
 
 interface ProjectSubmitPayload {
   name: string;
   repoFolderPath: string;
+  projectType: ProjectType;
 }
 
 interface ActionResult {
@@ -59,10 +60,11 @@ function DashboardPage() {
   const handleProjectSubmit = async ({
     name,
     repoFolderPath,
+    projectType,
   }: ProjectSubmitPayload): Promise<ActionResult> => {
     setIsCreatingProject(true);
     try {
-      const result = await createProject(name, repoFolderPath);
+      const result = await createProject(name, repoFolderPath, projectType);
       if (result.success) {
         setShowProjectForm(false);
       }

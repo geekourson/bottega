@@ -263,7 +263,8 @@ describe('Conversations Routes - Phase 3', () => {
           .post('/api/tasks/1/conversations')
           .send({ message: 'Test message', provider: 'anthropic', model: 'opus' });
 
-        expect(buildContextPrompt).toHaveBeenCalledWith(1, 1);
+        // 3rd arg is the resolved working dir (main repo here — task has no worktree).
+        expect(buildContextPrompt).toHaveBeenCalledWith(1, 1, '/path/to/repo');
       });
 
       it('should use default permissionMode when not provided', async () => {

@@ -54,6 +54,28 @@ describe('Database Layer - Phase 1', () => {
           projectsDb.create(testUserId, 'Project 2', '/home/user/project');
         }).toThrow();
       });
+
+      it("should default project_type to 'web'", () => {
+        const created = projectsDb.create(testUserId, 'Default Type', '/path/default-type');
+        expect(created.projectType).toBe('web');
+
+        const persisted = projectsDb.getById(created.id, testUserId);
+        expect(persisted!.project_type).toBe('web');
+      });
+
+      it('should persist an explicit project_type', () => {
+        const created = projectsDb.create(testUserId, 'Api Type', '/path/api-type', null, 'api');
+        expect(created.projectType).toBe('api');
+
+        const persisted = projectsDb.getById(created.id, testUserId);
+        expect(persisted!.project_type).toBe('api');
+      });
+
+      it('should reject a project_type outside the CHECK constraint', () => {
+        expect(() => {
+          projectsDb.create(testUserId, 'Bad Type', '/path/bad-type', null, 'mobile' as never);
+        }).toThrow();
+      });
     });
 
     describe('getAll', () => {
@@ -223,6 +245,20 @@ describe('Database Layer - Phase 1', () => {
         // Verify in database
         const fetchedTask = tasksDb.getById(task.id);
         expect(fetchedTask!.status).toBe('pending');
+      });
+
+      it('should default uses_worktree to 0', () => {
+        const task = tasksDb.create(testProjectId, 'No worktree');
+        expect(task.uses_worktree).toBe(0);
+        expect(tasksDb.getById(task.id)!.uses_worktree).toBe(0);
+      });
+
+      it('should persist uses_worktree=1 when requested', () => {
+        const task = tasksDb.create(testProjectId, 'Isolated', false, null, false, true);
+        expect(task.uses_worktree).toBe(1);
+
+        const fetched = tasksDb.getById(task.id);
+        expect(fetched!.uses_worktree).toBe(1);
       });
     });
 

@@ -329,6 +329,13 @@ export function truncateToFitContext(
   return kept.flat();
 }
 
+// Fraction of the context window reserved for overhead that is not stored in
+// the transcript: the Claude Code system prompt, injected tool schemas, MCP
+// server descriptions, and the new user message for this turn. Without this
+// margin the history can fill the window exactly and the total request still
+// overflows. 20 % is conservative enough to cover even large system prompts.
+const HISTORY_HEADROOM_FRACTION = 0.8;
+
 /**
  * Wrap `store` so `load()` returns a truncated transcript for the main
  * transcript only (subagent subpaths are passed through verbatim — they
@@ -339,10 +346,14 @@ export function createTruncatingSessionStore(
   store: SqliteSessionStore,
   maxContextTokens: number,
 ): SqliteSessionStore {
+  // Reserve headroom for the system prompt, tool schemas, and the new user
+  // message — none of which appear in the stored transcript but all of which
+  // count against the context window on every request.
+  const historyBudget = Math.floor(maxContextTokens * HISTORY_HEADROOM_FRACTION);
   return new Proxy(store, {
     get(target, prop, receiver) {
       if (prop === 'load') {
-        return (key: SessionKey) => target.loadTruncated(key, maxContextTokens);
+        return (key: SessionKey) => target.loadTruncated(key, historyBudget);
       }
       return Reflect.get(target, prop, receiver);
     },

@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS projects (
     user_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     repo_folder_path TEXT UNIQUE NOT NULL,
+    project_type TEXT NOT NULL DEFAULT 'web' CHECK(project_type IN ('web','api','cli','game','library')),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -77,6 +78,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     yolo_mode INTEGER DEFAULT 0 NOT NULL,
     ux_review_required INTEGER DEFAULT 0 NOT NULL,
     ux_design_approved INTEGER DEFAULT 0 NOT NULL,
+    uses_worktree INTEGER DEFAULT 0 NOT NULL,
     completed_at DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,

@@ -35,9 +35,16 @@ Based on the sub-agent's findings:
    **ASK**: "Should auth use JWT or sessions?" (architectural choice with real tradeoffs)
    **DON'T ASK**: "Should I remove password confirmation from both UI and model?" (obviously yes)
 
-2. ALWAYS propose a testing strategy and confirm with the user:
+2. ALWAYS propose a testing strategy and confirm with the user. Match it to the
+   project type described in your system prompt's **Verification Profile** — do
+   NOT default to browser testing for non-web projects:
    - Unit tests (which files/scenarios)
-   - Manual Playwright MCP testing scenarios (if the feature has UI impact)
+   - Manual verification scenarios using the tools appropriate to the project type:
+     - **web** → Playwright MCP scenarios (only if the feature has UI impact)
+     - **api** → `curl`/HTTP endpoint checks + DB state assertions
+     - **cli** → run the command and assert on output/exit code
+     - **library** → exercise the public API through the test suite
+     - **game** → build, launch, and verify via the engine's tooling
    - Explicitly state if integration/E2E tests are NOT needed and why
 
 3. If everything is truly 100% clear (rare), explain WHY you're skipping clarification before proceeding.

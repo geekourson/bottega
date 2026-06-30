@@ -12,7 +12,7 @@ import { tasksDb, agentRunsDb, conversationsDb, userDb } from '../database/db.js
 import { startConversation } from './conversationAdapter.js';
 import { updateUserBadge } from './notifications.js';
 import { buildContextPrompt, getTaskDocPath, getRecordingPath } from './documentation.js';
-import { getWorktreeProjectPath, worktreeExists, getPullRequestStatus } from './worktree.js';
+import { getPullRequestStatus, resolveTaskWorkingDir } from './worktree.js';
 import { getCredentialStore } from './credentials/registry.js';
 import { ProviderCredentialsMissingError } from './credentials/types.js';
 import {
@@ -72,11 +72,16 @@ export async function startAgentRun(
   }
   const effectiveUserId = userId ?? taskWithProject.user_id ?? undefined;
 
-  // Get effective path (worktree if exists, otherwise main repo)
-  let effectivePath = taskWithProject.repo_folder_path;
-  if (await worktreeExists(effectivePath, taskId)) {
-    effectivePath = getWorktreeProjectPath(effectivePath, taskId, taskWithProject.subproject_path);
-  }
+  // Resolve the working directory from the task's PERSISTED worktree decision.
+  // For isolated tasks this recreates a missing worktree (or throws) rather than
+  // ever falling back to the main repo — see resolveTaskWorkingDir.
+  const effectivePath = await resolveTaskWorkingDir({
+    taskId,
+    repoFolderPath: taskWithProject.repo_folder_path,
+    subprojectPath: taskWithProject.subproject_path,
+    usesWorktree: taskWithProject.uses_worktree === 1,
+    title: taskWithProject.title,
+  });
   // Task doc lives in the central archive, not the worktree — survives PR merge
   const taskDocPath = getTaskDocPath(taskWithProject.project_id, taskId);
 
@@ -89,17 +94,17 @@ export async function startAgentRun(
       // when no acting user is supplied (programmatic callers).
       const actor = effectiveUserId ? userDb.getUserById(effectiveUserId) : null;
       const actorIsTechnical = actor ? actor.is_technical !== 0 : true;
-      message = await generatePlanificationMessage(taskDocPath, taskId, actorIsTechnical);
+      message = await generatePlanificationMessage(taskDocPath, taskId, actorIsTechnical, taskWithProject.project_id);
       break;
     }
     case 'implementation':
-      message = await generateImplementationMessage(taskDocPath, taskId);
+      message = await generateImplementationMessage(taskDocPath, taskId, taskWithProject.project_id);
       break;
     case 'review':
-      message = await generateReviewMessage(taskDocPath, taskId);
+      message = await generateReviewMessage(taskDocPath, taskId, taskWithProject.project_id);
       break;
     case 'refinement':
-      message = await generateRefinementMessage(taskDocPath, taskId);
+      message = await generateRefinementMessage(taskDocPath, taskId, taskWithProject.project_id);
       break;
     case 'pr': {
       // IMPORTANT: Use main repo path (not worktree path) for getPullRequestStatus
@@ -112,18 +117,18 @@ export async function startAgentRun(
       const webhookCtx = options.webhookContext;
       if (webhookCtx?.comments) {
         // Shape is validated by the webhook route (commit 5: zod boundary).
-        message = await generatePrAgentReviewMessage(taskDocPath, taskId, prUrl, webhookCtx as never);
+        message = await generatePrAgentReviewMessage(taskDocPath, taskId, prUrl, webhookCtx as never, taskWithProject.project_id);
       } else if (webhookCtx) {
-        message = await generatePrAgentCommentMessage(taskDocPath, taskId, prUrl, webhookCtx as never);
+        message = await generatePrAgentCommentMessage(taskDocPath, taskId, prUrl, webhookCtx as never, taskWithProject.project_id);
       } else {
-        message = await generatePrAgentMessage(taskDocPath, taskId, prUrl);
+        message = await generatePrAgentMessage(taskDocPath, taskId, prUrl, taskWithProject.project_id);
       }
       break;
     }
     case 'yolo': {
       const yoloPrStatus = await getPullRequestStatus(taskWithProject.repo_folder_path, taskId);
       const yoloPrUrl = yoloPrStatus.exists ? yoloPrStatus.url ?? null : null;
-      message = await generateYoloMessage(taskDocPath, taskId, yoloPrUrl);
+      message = await generateYoloMessage(taskDocPath, taskId, yoloPrUrl, taskWithProject.project_id);
       break;
     }
     case 'po':
@@ -134,7 +139,7 @@ export async function startAgentRun(
       );
       break;
     case 'ux_design':
-      message = await generateUxDesignMessage(taskDocPath, taskId);
+      message = await generateUxDesignMessage(taskDocPath, taskId, taskWithProject.project_id);
       break;
     default:
       throw new Error(`Unknown agent type: ${agentType}`);
@@ -169,7 +174,7 @@ export async function startAgentRun(
   // Per docs/opencode/00-context-decisions.md § R1: OpenCode runs review
   // agents in degraded mode — no Playwright MCP, no recording temp dir.
   let videoConfig: VideoConfig | null = null;
-  if (agentType === 'review' && provider !== 'opencode') {
+  if (agentType === 'review' && provider !== 'opencode' && taskWithProject.project_type === 'web') {
     const tempDir = `/tmp/bottega-video-${taskId}-${Date.now()}`;
     videoConfig = {
       tempDir,
@@ -252,7 +257,12 @@ export async function startAgentRun(
   }
 
   // Build context prompt from task markdown + input files (central archive)
-  const contextPrompt = buildContextPrompt(taskWithProject.project_id, taskId, taskWithProject.repo_folder_path);
+  const contextPrompt = buildContextPrompt(
+    taskWithProject.project_id,
+    taskId,
+    taskWithProject.repo_folder_path,
+    taskWithProject.project_type,
+  );
 
   // (provider, model, effort) loaded above before agentRunsDb.create
   // so the agent run row carries the right provider stamp.

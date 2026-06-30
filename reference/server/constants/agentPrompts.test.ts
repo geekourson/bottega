@@ -8,8 +8,14 @@ import {
   generatePlanificationMessage,
   generatePrAgentCommentMessage,
   generatePrAgentReviewMessage,
+  generateImplementationMessage,
+  generateReviewMessage,
 } from './agentPrompts.js';
-import { saveOverride, deleteOverride } from '../services/promptRenderer.js';
+import {
+  saveOverride,
+  deleteOverride,
+  saveProjectOverride,
+} from '../services/promptRenderer.js';
 
 describe('generateYoloMessage', () => {
   const taskDocPath = '/repo/.bottega/tasks/task-42.md';
@@ -165,6 +171,46 @@ describe('generatePlanificationMessage — plan-template integration', () => {
     const msg = await generatePlanificationMessage(taskDocPath, taskId);
     expect(msg).toMatch(/@\S+server\/constants\/templates\/plan-template\.md/);
     expect(msg).not.toContain(archiveRoot);
+  });
+});
+
+describe('per-project prompt override threading (Tier 2)', () => {
+  const taskDocPath = '/repo/.bottega/tasks/task-7.md';
+  const taskId = 7;
+  const projectId = 11;
+  let archiveRoot: string;
+
+  beforeEach(() => {
+    archiveRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-prompt-proj-'));
+    process.env.BOTTEGA_ARCHIVE_ROOT = archiveRoot;
+  });
+
+  afterEach(() => {
+    if (archiveRoot && fs.existsSync(archiveRoot)) {
+      fs.rmSync(archiveRoot, { recursive: true, force: true });
+    }
+    delete process.env.BOTTEGA_ARCHIVE_ROOT;
+  });
+
+  it('uses the per-project override when a projectId is passed', async () => {
+    saveProjectOverride('implementation', projectId, 'PROJECT IMPL for {{taskId}}');
+    const msg = await generateImplementationMessage(taskDocPath, taskId, projectId);
+    expect(msg).toBe(`PROJECT IMPL for ${taskId}`);
+  });
+
+  it('falls back to the default when no projectId is passed', async () => {
+    saveProjectOverride('implementation', projectId, 'PROJECT IMPL');
+    const msg = await generateImplementationMessage(taskDocPath, taskId);
+    expect(msg).toContain('@agent-Implement');
+  });
+
+  it('a project override beats a global override for review', async () => {
+    saveOverride('review', 'GLOBAL REVIEW');
+    saveProjectOverride('review', projectId, 'PROJECT REVIEW');
+    expect(await generateReviewMessage(taskDocPath, taskId, projectId)).toBe('PROJECT REVIEW');
+    // Without the projectId, the global override applies.
+    expect(await generateReviewMessage(taskDocPath, taskId)).toBe('GLOBAL REVIEW');
+    deleteOverride('review');
   });
 });
 

@@ -10,11 +10,13 @@ import { ArrowLeft, Save, Trash2, FolderOpen, AlertTriangle, Archive, Server, Fi
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import MarkdownEditor, { type SaveResult } from '../components/MarkdownEditor';
+import ProjectPromptsEditor from '../components/ProjectPromptsEditor';
 import { useTaskContext } from '../contexts/TaskContext';
 import { api } from '../utils/api';
-import type { ProjectRow } from '../../shared/types/db';
+import type { ProjectRow, ProjectType } from '../../shared/types/db';
 import type { CleanupOldCompletedTasksResponse } from '../../shared/api/tasks';
 import type { ApiError } from '../../shared/api/_common';
+import { PROJECT_TYPE_OPTIONS } from '../constants/projectTypes';
 
 interface WebServerConfigState {
   serveSymlinkPath: string;
@@ -46,6 +48,7 @@ function ProjectEditPageWrapper() {
   const [cleanupResult, setCleanupResult] = useState<CleanupOldCompletedTasksResponse | null>(null);
 
   const [subprojectPath, setSubprojectPath] = useState('');
+  const [projectType, setProjectType] = useState<ProjectType>('web');
 
   const [serveSymlinkPath, setServeSymlinkPath] = useState('');
   const [systemdServiceName, setSystemdServiceName] = useState('');
@@ -58,6 +61,9 @@ function ProjectEditPageWrapper() {
 
   const [readmeContent, setReadmeContent] = useState<string | null>(null);
   const [isLoadingReadme, setIsLoadingReadme] = useState(true);
+
+  const [constraintsContent, setConstraintsContent] = useState<string | null>(null);
+  const [isLoadingConstraints, setIsLoadingConstraints] = useState(true);
 
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -92,6 +98,7 @@ function ProjectEditPageWrapper() {
     if (project) {
       setName(project.name || '');
       setSubprojectPath(project.subproject_path || '');
+      setProjectType(project.project_type || 'web');
       setHasChanges(false);
       setError(null);
     }
@@ -159,16 +166,54 @@ function ProjectEditPageWrapper() {
     }
   }, [project]);
 
+  useEffect(() => {
+    const loadConstraints = async () => {
+      if (!project) return;
+      setIsLoadingConstraints(true);
+      try {
+        const response = await api.projects.getConstraints(project.id);
+        if (response.ok) {
+          const data = await response.json();
+          setConstraintsContent(data.content);
+        }
+      } catch (error) {
+        console.error('Error loading project constraints:', error);
+      } finally {
+        setIsLoadingConstraints(false);
+      }
+    };
+    void loadConstraints();
+  }, [project]);
+
+  const handleSaveConstraints = useCallback(async (content: string): Promise<SaveResult> => {
+    if (!project) return { success: false, error: 'No project loaded' };
+
+    try {
+      const response = await api.projects.updateConstraints(project.id, content);
+      if (!response.ok) {
+        const data = (await response.json()) as unknown as ApiError;
+        return { success: false, error: data.error || 'Failed to save constraints' };
+      }
+      const data = await response.json();
+      setConstraintsContent(data.content);
+      return { success: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save constraints';
+      return { success: false, error: message };
+    }
+  }, [project]);
+
   // Track changes
   useEffect(() => {
     if (!project) return;
     const nameChanged = name !== (project.name || '');
     const subprojectChanged = subprojectPath !== (project.subproject_path || '');
+    const projectTypeChanged = projectType !== (project.project_type || 'web');
     const webServerChanged = serveSymlinkPath !== initialWebServerConfig.serveSymlinkPath ||
       systemdServiceName !== initialWebServerConfig.systemdServiceName ||
       appUrl !== initialWebServerConfig.appUrl;
-    setHasChanges(nameChanged || subprojectChanged || webServerChanged);
-  }, [name, project, subprojectPath, serveSymlinkPath, systemdServiceName, appUrl, initialWebServerConfig]);
+    setHasChanges(nameChanged || subprojectChanged || projectTypeChanged || webServerChanged);
+  }, [name, project, subprojectPath, projectType, serveSymlinkPath, systemdServiceName, appUrl, initialWebServerConfig]);
 
   // Handle save
   const handleSave = useCallback(async () => {
@@ -186,6 +231,7 @@ function ProjectEditPageWrapper() {
       const result = await updateProject(project.id, {
         name: name.trim(),
         subprojectPath: subprojectPath.trim() || undefined,
+        projectType,
       });
 
       if (!result.success) {
@@ -218,7 +264,7 @@ function ProjectEditPageWrapper() {
     } finally {
       setIsSaving(false);
     }
-  }, [project, name, subprojectPath, serveSymlinkPath, systemdServiceName, appUrl, initialWebServerConfig, updateProject, navigate, projectId]);
+  }, [project, name, subprojectPath, projectType, serveSymlinkPath, systemdServiceName, appUrl, initialWebServerConfig, updateProject, navigate, projectId]);
 
   // Handle delete
   const handleDelete = useCallback(async () => {
@@ -382,6 +428,29 @@ function ProjectEditPageWrapper() {
             />
           </div>
 
+          {/* Project type */}
+          <div className="space-y-2">
+            <label htmlFor="project-type" className="text-sm font-medium text-foreground">
+              Project Type
+            </label>
+            <select
+              id="project-type"
+              value={projectType}
+              onChange={(e) => setProjectType(e.target.value as ProjectType)}
+              className="w-full h-10 px-3 appearance-none bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 cursor-pointer"
+              data-testid="project-type-select"
+            >
+              {PROJECT_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              {PROJECT_TYPE_OPTIONS.find((o) => o.value === projectType)?.description}
+            </p>
+          </div>
+
           {/* Folder path (read-only) */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">
@@ -414,6 +483,51 @@ function ProjectEditPageWrapper() {
                   placeholder="No README found at the root of this project. Click Edit to create one."
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Project Constraints (authoritative, private guardrails) */}
+          <div className="pt-6 border-t border-border">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-muted-foreground" />
+                <h3 className="text-sm font-medium text-foreground">
+                  Business Constraints
+                </h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Hard, project-specific rules injected into every agent's system prompt as
+                authoritative <strong>MUST / MUST NOT</strong> requirements. Unlike the README, these are
+                kept private (never committed to the repo) and agents are told not to edit them.
+                Use them for business constraints, off-limits areas, or conventions agents must always follow.
+              </p>
+              <div className="border border-border rounded-md overflow-hidden">
+                <MarkdownEditor
+                  content={constraintsContent}
+                  onSave={handleSaveConstraints}
+                  isLoading={isLoadingConstraints}
+                  placeholder="No constraints set. Click Edit to add business rules every agent must follow."
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Per-project Agent Prompt Overrides (Tier 2) */}
+          <div className="pt-6 border-t border-border">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-muted-foreground" />
+                <h3 className="text-sm font-medium text-foreground">
+                  Agent Prompt Overrides
+                </h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                For unusual projects, fully replace an agent's prompt for this project only.
+                Resolution is project override → your global override → bundled default.
+                Prefer Business Constraints above for additive rules; use this only when you
+                need to rewrite an agent's instructions wholesale.
+              </p>
+              <ProjectPromptsEditor projectId={project.id} />
             </div>
           </div>
 
