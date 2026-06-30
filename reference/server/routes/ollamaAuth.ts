@@ -16,6 +16,7 @@ import {
   writeOllamaUrl,
   writeOllamaMaxTokens,
   writeOllamaContextWindow,
+  writeOllamaMaxConcurrentTasks,
   readOllamaInstances,
   writeOllamaInstances,
   deleteOllamaInstance,
@@ -28,6 +29,7 @@ import type {
   SetOllamaUrlResponse,
   SetOllamaMaxTokensResponse,
   SetOllamaContextWindowResponse,
+  SetOllamaMaxConcurrentTasksResponse,
   GetOllamaInstancesResponse,
   AddOllamaInstanceResponse,
   DeleteOllamaInstanceResponse,
@@ -68,6 +70,7 @@ router.get(
         urlPath: status.urlPath,
         maxOutputTokens: status.maxOutputTokens,
         contextWindowTokens: status.contextWindowTokens,
+        maxConcurrentTasks: status.maxConcurrentTasks,
         ...(status.reason !== undefined ? { reason: status.reason } : {}),
       });
     } catch (error) {
@@ -146,6 +149,26 @@ router.put(
     try {
       await writeOllamaContextWindow(req.user!.id, tokens);
       res.status(201).json({ ok: true, contextWindowTokens: tokens });
+    } catch (error) {
+      authErrorResponse(res as Response<OllamaAuthErrorBody | ApiError>, error);
+    }
+  },
+);
+
+router.put(
+  '/max-concurrent-tasks',
+  async (req: Request, res: Response<SetOllamaMaxConcurrentTasksResponse | OllamaAuthErrorBody>) => {
+    const body = req.body as { maxConcurrentTasks?: unknown };
+    const raw = Number(body.maxConcurrentTasks);
+    if (!Number.isInteger(raw) || raw < 1) {
+      return res.status(400).json({
+        error: 'maxConcurrentTasks must be an integer ≥ 1',
+        code: 'OLLAMA_AUTH_INVALID_PAYLOAD',
+      });
+    }
+    try {
+      await writeOllamaMaxConcurrentTasks(req.user!.id, raw);
+      res.status(201).json({ ok: true, maxConcurrentTasks: raw });
     } catch (error) {
       authErrorResponse(res as Response<OllamaAuthErrorBody | ApiError>, error);
     }

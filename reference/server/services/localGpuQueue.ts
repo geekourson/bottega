@@ -16,10 +16,11 @@ export interface QueuedTask {
   taskId: number;
   agentType: AgentType;
   options: StartAgentRunOptions;
+  agentRunId?: number;
 }
 
 type InternalEntry =
-  | { kind: 'start'; taskId: number; agentType: AgentType; options: StartAgentRunOptions }
+  | { kind: 'start'; taskId: number; agentType: AgentType; options: StartAgentRunOptions; agentRunId?: number }
   | { kind: 'resume'; taskId: number; resolve: () => void };
 
 export class LocalGpuQueue {
@@ -61,7 +62,7 @@ export class LocalGpuQueue {
 
   enqueue(entry: QueuedTask): void {
     if (!this.queue.some((e) => e.taskId === entry.taskId)) {
-      this.queue.push({ kind: 'start', ...entry });
+      this.queue.push({ kind: 'start', taskId: entry.taskId, agentType: entry.agentType, options: entry.options, ...(entry.agentRunId !== undefined ? { agentRunId: entry.agentRunId } : {}) });
     }
   }
 
@@ -91,7 +92,7 @@ export class LocalGpuQueue {
           candidate.resolve();
           return null;
         }
-        return { taskId: candidate.taskId, agentType: candidate.agentType, options: candidate.options };
+        return { taskId: candidate.taskId, agentType: candidate.agentType, options: candidate.options, ...(candidate.agentRunId !== undefined ? { agentRunId: candidate.agentRunId } : {}) };
       }
       this.queue.push(candidate);
       attempts++;

@@ -34,6 +34,7 @@ export type AgentType =
 
 export type AgentRunStatus =
   | 'pending'
+  | 'queued'
   | 'running'
   | 'completed'
   | 'failed'

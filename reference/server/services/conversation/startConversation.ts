@@ -193,6 +193,7 @@ export async function startConversation(
       taskId,
       broadcastToTaskSubscribersFn,
     }),
+    autoCompact: true,
   });
 
   // Local inference servers (Ollama, local-ai) don't support extended thinking
@@ -680,6 +681,7 @@ export async function sendMessage(
     model: resumeSdkModel,
     effort: resumeEffort,
     sessionStore: resumeSessionStore,
+    autoCompact: true,
   });
 
   // Local inference servers don't support extended thinking or partial-message

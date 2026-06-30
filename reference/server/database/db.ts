@@ -468,6 +468,37 @@ const runMigrations = (): void => {
       console.error('Error migrating task_agent_runs to drop paused status:', message);
     }
 
+    try {
+      const checkQueued = db
+        .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='task_agent_runs'`)
+        .get() as { sql: string } | undefined;
+
+      if (checkQueued && !checkQueued.sql.includes("'queued'")) {
+        console.log('Running migration: Adding queued status to task_agent_runs');
+        db.exec(`
+          CREATE TABLE task_agent_runs_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            agent_type TEXT NOT NULL CHECK(agent_type IN ('planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po', 'ux_design')),
+            status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'queued', 'running', 'completed', 'failed', 'blocked')),
+            conversation_id INTEGER,
+            provider TEXT NOT NULL DEFAULT 'anthropic',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            completed_at DATETIME,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+          );
+          INSERT INTO task_agent_runs_new SELECT * FROM task_agent_runs;
+          DROP TABLE task_agent_runs;
+          ALTER TABLE task_agent_runs_new RENAME TO task_agent_runs;
+          CREATE INDEX idx_task_agent_runs_task_id ON task_agent_runs(task_id);
+        `);
+      }
+    } catch (migrationError) {
+      const message = migrationError instanceof Error ? migrationError.message : String(migrationError);
+      console.error('Error migrating task_agent_runs to add queued status:', message);
+    }
+
     const convTableInfoUpdated = db
       .prepare('PRAGMA table_info(conversations)')
       .all() as ColumnInfoRow[];
@@ -1530,6 +1561,28 @@ const agentRunsDb = {
     };
   },
 
+  createQueued: (
+    taskId: number,
+    agentType: AgentType,
+    provider: Provider = 'anthropic',
+  ): AgentRunRow => {
+    const stmt = db.prepare(
+      `INSERT INTO task_agent_runs (task_id, agent_type, status, conversation_id, provider)
+       VALUES (?, ?, 'queued', NULL, ?)`
+    );
+    const result = stmt.run(taskId, agentType, provider);
+    return {
+      id: lastInsertId(result.lastInsertRowid),
+      task_id: taskId,
+      agent_type: agentType,
+      status: 'queued',
+      conversation_id: null,
+      provider,
+      created_at: new Date().toISOString(),
+      completed_at: null,
+    };
+  },
+
   getByTask: (taskId: number): AgentRunRow[] => {
     return db
       .prepare(
@@ -1570,6 +1623,7 @@ const agentRunsDb = {
   updateStatus: (id: number, status: AgentRunStatus): AgentRunRow | undefined => {
     const validStatuses: AgentRunStatus[] = [
       'pending',
+      'queued',
       'running',
       'completed',
       'failed',

@@ -105,7 +105,7 @@ function AgentSection({
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    const hasLive = agentRuns.some(r => r.status === 'running' || r.status === 'pending');
+    const hasLive = agentRuns.some(r => r.status === 'running' || r.status === 'pending' || r.status === 'queued');
     if (!hasLive) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
@@ -200,6 +200,7 @@ function AgentSection({
           // manual refresh.)
           const isCompleted = status === 'completed';
           const isFailed = status === 'failed';
+          const isQueued = status === 'queued';
           const isInProgress = status === 'running' || status === 'pending';
           const hasConversation = !!agentRun?.conversation_id;
           const Icon = agent.icon;
@@ -216,6 +217,8 @@ function AgentSection({
                   ? 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20'
                   : isInProgress
                   ? 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20'
+                  : isQueued
+                  ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20'
                   : 'border-border hover:border-primary/50'
               )}
             >
@@ -228,6 +231,8 @@ function AgentSection({
                     ? 'bg-red-100 dark:bg-red-800'
                     : isInProgress
                     ? 'bg-blue-100 dark:bg-blue-800'
+                    : isQueued
+                    ? 'bg-amber-100 dark:bg-amber-800'
                     : 'bg-muted'
                 )}>
                   <Icon className={cn(
@@ -238,6 +243,8 @@ function AgentSection({
                       ? 'text-red-600 dark:text-red-400'
                       : isInProgress
                       ? 'text-blue-600 dark:text-blue-400'
+                      : isQueued
+                      ? 'text-amber-600 dark:text-amber-400'
                       : 'text-muted-foreground'
                   )} />
                 </div>
@@ -269,14 +276,15 @@ function AgentSection({
 
                 {/* Main action button - always starts a new agent run */}
                 <Button
-                  variant={isCompleted ? 'ghost' : isFailed ? 'ghost' : 'outline'}
+                  variant={isCompleted ? 'ghost' : isFailed ? 'ghost' : isQueued ? 'ghost' : 'outline'}
                   size="sm"
                   onClick={() => handleRunAgent(agent)}
-                  disabled={isRunning || isInProgress}
+                  disabled={isRunning || isInProgress || isQueued}
                   className={cn(
                     'gap-2',
                     isCompleted && 'text-green-600 dark:text-green-400',
-                    isFailed && 'text-red-600 dark:text-red-400'
+                    isFailed && 'text-red-600 dark:text-red-400',
+                    isQueued && 'text-amber-600 dark:text-amber-400'
                   )}
                 >
                   {isRunning ? (
@@ -298,6 +306,11 @@ function AgentSection({
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       Running
+                    </>
+                  ) : isQueued ? (
+                    <>
+                      <Clock className="w-4 h-4" />
+                      Queued
                     </>
                   ) : (
                     <>

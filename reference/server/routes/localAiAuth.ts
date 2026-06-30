@@ -17,6 +17,7 @@ import {
   writeLocalAiMaxTokens,
   writeLocalAiContextWindow,
   writeLocalAiDisableProxy,
+  writeLocalAiMaxConcurrentTasks,
   readLocalAiInstances,
   writeLocalAiInstances,
   deleteLocalAiInstance,
@@ -30,6 +31,7 @@ import type {
   SetLocalAiMaxTokensResponse,
   SetLocalAiContextWindowResponse,
   SetLocalAiDisableProxyResponse,
+  SetLocalAiMaxConcurrentTasksResponse,
   GetLocalAiInstancesResponse,
   AddLocalAiInstanceResponse,
   DeleteLocalAiInstanceResponse,
@@ -71,6 +73,7 @@ router.get(
         maxOutputTokens: status.maxOutputTokens,
         contextWindowTokens: status.contextWindowTokens,
         disableProxy: status.disableProxy,
+        maxConcurrentTasks: status.maxConcurrentTasks,
         ...(status.reason !== undefined ? { reason: status.reason } : {}),
       });
     } catch (error) {
@@ -167,6 +170,26 @@ router.put(
     try {
       await writeLocalAiDisableProxy(req.user!.id, body.disableProxy);
       res.status(201).json({ ok: true, disableProxy: body.disableProxy });
+    } catch (error) {
+      authErrorResponse(res as Response<LocalAiAuthErrorBody | ApiError>, error);
+    }
+  },
+);
+
+router.put(
+  '/max-concurrent-tasks',
+  async (req: Request, res: Response<SetLocalAiMaxConcurrentTasksResponse | LocalAiAuthErrorBody>) => {
+    const body = req.body as { maxConcurrentTasks?: unknown };
+    const raw = Number(body.maxConcurrentTasks);
+    if (!Number.isInteger(raw) || raw < 1) {
+      return res.status(400).json({
+        error: 'maxConcurrentTasks must be an integer ≥ 1',
+        code: 'LOCAL_AI_AUTH_INVALID_PAYLOAD',
+      });
+    }
+    try {
+      await writeLocalAiMaxConcurrentTasks(req.user!.id, raw);
+      res.status(201).json({ ok: true, maxConcurrentTasks: raw });
     } catch (error) {
       authErrorResponse(res as Response<LocalAiAuthErrorBody | ApiError>, error);
     }

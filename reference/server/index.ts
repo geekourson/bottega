@@ -82,7 +82,9 @@ import settingsRoutes from './routes/settings.js';
 import appSettingsRoutes from './routes/appSettings.js';
 import userAgentModelSettingsRoutes from './routes/userAgentModelSettings.js';
 import poSessionsRoutes from './routes/po-sessions.js';
-import { initializeDatabase, agentRunsDb } from './database/db.js';
+import { initializeDatabase, agentRunsDb, userDb } from './database/db.js';
+import { initLocalAiPool } from './services/localAiCredentials.js';
+import { initOllamaPool } from './services/ollamaCredentials.js';
 import { getProject } from './services/projectService.js';
 import { transcribeAudio } from './services/transcription.js';
 import {
@@ -597,13 +599,23 @@ async function startServer(): Promise<void> {
 
     await initializeDatabase();
 
-    const orphanedRuns = agentRunsDb.getByStatus('running');
+    // Restore per-user local GPU queue settings (maxConcurrent) from disk.
+    // Without this, the queue resets to maxConcurrent=1 on every server restart.
+    for (const user of userDb.getAllUsers()) {
+      initLocalAiPool(user.id);
+      initOllamaPool(user.id);
+    }
+
+    const orphanedRuns = [
+      ...agentRunsDb.getByStatus('running'),
+      ...agentRunsDb.getByStatus('queued'),
+    ];
     if (orphanedRuns.length > 0) {
       for (const run of orphanedRuns) {
         agentRunsDb.updateStatus(run.id, 'failed');
       }
       console.log(
-        `[RECOVERY] Marked ${orphanedRuns.length} orphaned agent run(s) as failed: ${orphanedRuns.map((r) => `#${r.id} (${r.agent_type} for task ${r.task_id})`).join(', ')}`,
+        `[RECOVERY] Marked ${orphanedRuns.length} orphaned agent run(s) as failed: ${orphanedRuns.map((r) => `#${r.id} (${r.agent_type}/${r.status} for task ${r.task_id})`).join(', ')}`,
       );
     }
 

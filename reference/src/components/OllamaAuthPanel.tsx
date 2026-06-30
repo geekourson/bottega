@@ -16,6 +16,7 @@ export function OllamaAuthPanel() {
   const [error, setError] = useState<string | null>(null);
   const [maxTokensValue, setMaxTokensValue] = useState('');
   const [contextWindowValue, setContextWindowValue] = useState('');
+  const [maxConcurrentValue, setMaxConcurrentValue] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
   const [instances, setInstances] = useState<{ url: string }[]>([]);
@@ -98,6 +99,32 @@ export function OllamaAuthPanel() {
       }
       setContextWindowValue('');
       setInfo(`Context window set to ${tokens.toLocaleString()}.`);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSaveMaxConcurrentTasks = async (): Promise<void> => {
+    const n = parseInt(maxConcurrentValue.trim(), 10);
+    if (!Number.isInteger(n) || n < 1) {
+      setError('Concurrent tasks must be an integer ≥ 1');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await api.ollamaAuth.setMaxConcurrentTasks(n);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(body.error ?? `Save failed (HTTP ${res.status})`);
+        return;
+      }
+      setMaxConcurrentValue('');
+      setInfo(`Max concurrent tasks set to ${n}.`);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -317,17 +344,53 @@ export function OllamaAuthPanel() {
       </div>
 
       <div className="space-y-2">
+        <label
+          htmlFor="ollama-max-concurrent"
+          className="block text-sm font-medium text-foreground"
+        >
+          Tâches simultanées{' '}
+          <span className="text-muted-foreground font-normal">
+            (actuel : {status?.maxConcurrentTasks ?? 1})
+          </span>
+        </label>
+        <div className="flex gap-2">
+          <input
+            id="ollama-max-concurrent"
+            type="number"
+            min={1}
+            step={1}
+            value={maxConcurrentValue}
+            onChange={(e) => setMaxConcurrentValue(e.target.value)}
+            placeholder={String(status?.maxConcurrentTasks ?? 1)}
+            disabled={submitting}
+            className="w-24 font-mono text-xs bg-background border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+          <Button
+            onClick={handleSaveMaxConcurrentTasks}
+            disabled={submitting || !maxConcurrentValue.trim()}
+          >
+            {submitting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+            Save
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Nombre d'agents pouvant tourner en parallèle sur ce serveur. Augmente si ton GPU
+          est sous-utilisé pendant un run (ex : 4 si ton GPU tourne à ~25% par agent).
+        </p>
+      </div>
+
+      <div className="space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium text-foreground">
             Instances{' '}
             <span className="text-muted-foreground font-normal">
-              ({instances.length} — {instances.length} agent{instances.length > 1 ? 's' : ''} simultané{instances.length > 1 ? 's' : ''})
+              ({instances.length})
             </span>
           </span>
         </div>
         <p className="text-xs text-muted-foreground">
-          Chaque instance est un serveur Ollama distinct. Bottega répartit les agents en
-          round-robin — N instances = N agents simultanés autorisés.
+          Chaque instance est un serveur Ollama distinct. Le load balancing se fait en
+          round-robin entre les instances.
         </p>
         <div className="space-y-1">
           {instances.map((inst) => (

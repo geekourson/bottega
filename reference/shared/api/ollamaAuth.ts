@@ -7,6 +7,7 @@ export interface OllamaAuthStatusResponse {
   urlPath: string | null;
   maxOutputTokens: number;
   contextWindowTokens: number;
+  maxConcurrentTasks: number;
   reason?: string;
 }
 
@@ -49,6 +50,15 @@ export interface OllamaModelEntry {
 
 export interface OllamaModelsResponse {
   models: OllamaModelEntry[];
+}
+
+export interface SetOllamaMaxConcurrentTasksRequest {
+  maxConcurrentTasks: number;
+}
+
+export interface SetOllamaMaxConcurrentTasksResponse {
+  ok: true;
+  maxConcurrentTasks: number;
 }
 
 export interface OllamaInstanceEntry {

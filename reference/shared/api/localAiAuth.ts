@@ -8,6 +8,7 @@ export interface LocalAiAuthStatusResponse {
   maxOutputTokens: number;
   contextWindowTokens: number;
   disableProxy: boolean;
+  maxConcurrentTasks: number;
   reason?: string;
 }
 
@@ -58,6 +59,15 @@ export interface LocalAiModelEntry {
 
 export interface LocalAiModelsResponse {
   models: LocalAiModelEntry[];
+}
+
+export interface SetLocalAiMaxConcurrentTasksRequest {
+  maxConcurrentTasks: number;
+}
+
+export interface SetLocalAiMaxConcurrentTasksResponse {
+  ok: true;
+  maxConcurrentTasks: number;
 }
 
 export interface LocalAiInstanceEntry {

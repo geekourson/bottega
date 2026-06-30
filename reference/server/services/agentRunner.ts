@@ -45,6 +45,7 @@ export interface StartAgentRunOptions {
     [key: string]: unknown;
   } | undefined;
   userInstructions?: string | undefined;
+  existingAgentRunId?: number | undefined;
 }
 
 export interface StartAgentRunResult {
@@ -188,10 +189,20 @@ export async function startAgentRun(
   // (provider, model, effort) were loaded above so credential
   // validation could see the right backend.
   void agentSettings;
-  const agentRun = agentRunsDb.create(taskId, agentType, null, provider);
-  console.log(
-    `[AgentRunner] Created agent run ${agentRun.id} (${agentType}) for task ${taskId} (provider=${provider})`,
-  );
+  // Reuse the queued record if one was created for this run, otherwise create fresh.
+  let agentRun = options.existingAgentRunId
+    ? agentRunsDb.getById(options.existingAgentRunId)
+    : undefined;
+  if (agentRun) {
+    console.log(
+      `[AgentRunner] Reusing queued agent run ${agentRun.id} (${agentType}) for task ${taskId}`,
+    );
+  } else {
+    agentRun = agentRunsDb.create(taskId, agentType, null, provider);
+    console.log(
+      `[AgentRunner] Created agent run ${agentRun.id} (${agentType}) for task ${taskId} (provider=${provider})`,
+    );
+  }
 
   // Set agent run status to 'running' immediately
   agentRunsDb.updateStatus(agentRun.id, 'running');

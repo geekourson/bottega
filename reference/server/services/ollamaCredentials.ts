@@ -115,6 +115,32 @@ export async function writeOllamaContextWindow(
   await fs.writeFile(filePath, String(tokens), { mode: 0o600 });
 }
 
+function resolveMaxConcurrentTasksFilePath(userId: number | string | undefined): string {
+  return path.join(resolveUserDir(userId), 'ollama-max-concurrent-tasks');
+}
+
+export function readOllamaMaxConcurrentTasks(userId: number | string | undefined): number {
+  const filePath = resolveMaxConcurrentTasksFilePath(userId);
+  try {
+    const raw = readFileSync(filePath, 'utf8').trim();
+    const parsed = parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+  } catch {
+    return 1;
+  }
+}
+
+export async function writeOllamaMaxConcurrentTasks(
+  userId: number | string | undefined,
+  n: number,
+): Promise<void> {
+  const filePath = resolveMaxConcurrentTasksFilePath(userId);
+  await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  await fs.writeFile(filePath, String(Math.max(1, n)), { mode: 0o600 });
+  const { ollamaGpuQueue } = await import('./localGpuQueue.js');
+  ollamaGpuQueue.setMaxConcurrent(Math.max(1, n));
+}
+
 function resolveInstancesFilePath(userId: number | string | undefined): string {
   return path.join(resolveUserDir(userId), 'ollama-instances.json');
 }
@@ -147,10 +173,11 @@ export async function writeOllamaInstances(
   const filePath = resolveInstancesFilePath(userId);
   await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
   await fs.writeFile(filePath, JSON.stringify(instances, null, 2), { mode: 0o600 });
-  // Sync pool and queue.
+  // Sync pool and queue. maxConcurrentTasks controls parallelism independently
+  // of instance count (instances handle load balancing, not slot count).
   const { ollamaGpuQueue } = await import('./localGpuQueue.js');
   ollamaPool.setInstances(instances.map((i) => i.url));
-  ollamaGpuQueue.setMaxConcurrent(Math.max(1, instances.length));
+  ollamaGpuQueue.setMaxConcurrent(readOllamaMaxConcurrentTasks(userId));
 }
 
 export async function deleteOllamaInstance(
@@ -164,9 +191,10 @@ export async function deleteOllamaInstance(
 
 export function initOllamaPool(userId: number | string | undefined): void {
   const instances = readOllamaInstances(userId);
+  const maxConcurrentTasks = readOllamaMaxConcurrentTasks(userId);
   import('./localGpuQueue.js').then(({ ollamaGpuQueue }) => {
     ollamaPool.setInstances(instances.map((i) => i.url));
-    ollamaGpuQueue.setMaxConcurrent(Math.max(1, instances.length));
+    ollamaGpuQueue.setMaxConcurrent(maxConcurrentTasks);
   }).catch(() => {});
 }
 
@@ -189,6 +217,7 @@ export interface OllamaAuthStatus {
   url: string;
   maxOutputTokens: number;
   contextWindowTokens: number;
+  maxConcurrentTasks: number;
   reason?: string;
 }
 
@@ -201,12 +230,13 @@ export async function getOllamaAuthStatus(
   const url = instances[0]?.url ?? readOllamaUrl(userId).url;
   const maxOutputTokens = readOllamaMaxTokens(userId);
   const contextWindowTokens = readOllamaContextWindow(userId);
+  const maxConcurrentTasks = readOllamaMaxConcurrentTasks(userId);
   try {
     const res = await fetch(`${url}/api/tags`, {
       signal: AbortSignal.timeout(3000),
     });
     if (res.ok) {
-      return { authenticated: true, status: 'authenticated', urlPath, url, maxOutputTokens, contextWindowTokens };
+      return { authenticated: true, status: 'authenticated', urlPath, url, maxOutputTokens, contextWindowTokens, maxConcurrentTasks };
     }
     return {
       authenticated: false,
@@ -215,6 +245,7 @@ export async function getOllamaAuthStatus(
       url,
       maxOutputTokens,
       contextWindowTokens,
+      maxConcurrentTasks,
       reason: `Ollama returned HTTP ${res.status}`,
     };
   } catch (err) {
@@ -226,6 +257,7 @@ export async function getOllamaAuthStatus(
       url,
       maxOutputTokens,
       contextWindowTokens,
+      maxConcurrentTasks,
       reason: `Cannot reach Ollama at ${url}: ${message}`,
     };
   }

@@ -194,7 +194,7 @@ export function processNextInQueue(releasingTaskId: number, provider: string): v
   console.log(`[LocalGpuQueue] Starting queued task ${next.taskId} (${next.agentType}) on ${provider}`);
   import('../agentRunner.js')
     .then(({ startAgentRun }) =>
-      startAgentRun(next.taskId, next.agentType, next.options).catch((err: unknown) => {
+      startAgentRun(next.taskId, next.agentType, { ...next.options, existingAgentRunId: next.agentRunId }).catch((err: unknown) => {
         console.error(`[LocalGpuQueue] Failed to start queued task ${next.taskId}:`, err);
         // Release slot on error so remaining tasks aren't stuck.
         processNextInQueue(next.taskId, provider);

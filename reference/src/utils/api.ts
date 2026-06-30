@@ -144,6 +144,7 @@ import type {
   SetOllamaUrlResponse,
   SetOllamaMaxTokensResponse,
   SetOllamaContextWindowResponse,
+  SetOllamaMaxConcurrentTasksResponse,
   GetOllamaInstancesResponse,
   AddOllamaInstanceResponse,
   DeleteOllamaInstanceResponse,
@@ -156,6 +157,7 @@ import type {
   SetLocalAiMaxTokensResponse,
   SetLocalAiContextWindowResponse,
   SetLocalAiDisableProxyResponse,
+  SetLocalAiMaxConcurrentTasksResponse,
   GetLocalAiInstancesResponse,
   AddLocalAiInstanceResponse,
   DeleteLocalAiInstanceResponse,
@@ -351,6 +353,11 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify({ contextWindowTokens }),
       }),
+    setMaxConcurrentTasks: (maxConcurrentTasks: number): TypedFetch<SetOllamaMaxConcurrentTasksResponse> =>
+      authenticatedFetch<SetOllamaMaxConcurrentTasksResponse>('/api/ollama-auth/max-concurrent-tasks', {
+        method: 'PUT',
+        body: JSON.stringify({ maxConcurrentTasks }),
+      }),
     models: (): TypedFetch<OllamaModelsResponse> =>
       authenticatedFetch<OllamaModelsResponse>('/api/ollama-auth/models'),
     instances: (): TypedFetch<GetOllamaInstancesResponse> =>
@@ -395,6 +402,11 @@ export const api = {
       authenticatedFetch<SetLocalAiDisableProxyResponse>('/api/local-ai-auth/disable-proxy', {
         method: 'PUT',
         body: JSON.stringify({ disableProxy }),
+      }),
+    setMaxConcurrentTasks: (maxConcurrentTasks: number): TypedFetch<SetLocalAiMaxConcurrentTasksResponse> =>
+      authenticatedFetch<SetLocalAiMaxConcurrentTasksResponse>('/api/local-ai-auth/max-concurrent-tasks', {
+        method: 'PUT',
+        body: JSON.stringify({ maxConcurrentTasks }),
       }),
     instances: (): TypedFetch<GetLocalAiInstancesResponse> =>
       authenticatedFetch<GetLocalAiInstancesResponse>('/api/local-ai-auth/instances'),

@@ -77,6 +77,12 @@ export interface MapOptionsInput {
    * auto-compact floor (100k tokens), so we truncate resumed history ourselves.
    */
   sessionStore?: SqliteSessionStore | undefined;
+  /**
+   * Enable SDK-level auto-compaction when the conversation approaches the
+   * context window limit. Only meaningful for Anthropic-based providers;
+   * Ollama/local-ai already use createTruncatingSessionStore for this.
+   */
+  autoCompact?: boolean;
 }
 
 export interface SDKOptions {
@@ -95,6 +101,7 @@ export interface SDKOptions {
   sessionStore?: typeof sqliteSessionStore;
   sessionStoreFlush?: 'eager' | 'lazy';
   mcpServers?: Record<string, unknown>;
+  settings?: { autoCompactEnabled?: boolean };
 }
 
 /**
@@ -159,6 +166,10 @@ export function mapOptionsToSDK(options: MapOptionsInput): SDKOptions {
 
   if (sessionId) {
     sdkOptions.resume = sessionId;
+  }
+
+  if (options.autoCompact) {
+    sdkOptions.settings = { autoCompactEnabled: true };
   }
 
   // Custom transcript backend. The SDK calls SqliteSessionStore.append/load/...

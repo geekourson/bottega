@@ -52,6 +52,10 @@ function resolveDisableProxyFilePath(userId: number | string | undefined): strin
   return path.join(resolveUserDir(userId), 'local-ai-disable-proxy');
 }
 
+function resolveMaxConcurrentTasksFilePath(userId: number | string | undefined): string {
+  return path.join(resolveUserDir(userId), 'local-ai-max-concurrent-tasks');
+}
+
 export function resolveLocalAiUrlPath(userId: number | string | undefined): string {
   return resolveUrlFilePath(userId);
 }
@@ -138,6 +142,28 @@ export async function writeLocalAiDisableProxy(
   await fs.writeFile(filePath, String(disable), { mode: 0o600 });
 }
 
+export function readLocalAiMaxConcurrentTasks(userId: number | string | undefined): number {
+  const filePath = resolveMaxConcurrentTasksFilePath(userId);
+  try {
+    const raw = readFileSync(filePath, 'utf8').trim();
+    const parsed = parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+  } catch {
+    return 1;
+  }
+}
+
+export async function writeLocalAiMaxConcurrentTasks(
+  userId: number | string | undefined,
+  n: number,
+): Promise<void> {
+  const filePath = resolveMaxConcurrentTasksFilePath(userId);
+  await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  await fs.writeFile(filePath, String(Math.max(1, n)), { mode: 0o600 });
+  const { localAiGpuQueue } = await import('./localGpuQueue.js');
+  localAiGpuQueue.setMaxConcurrent(Math.max(1, n));
+}
+
 function resolveInstancesFilePath(userId: number | string | undefined): string {
   return path.join(resolveUserDir(userId), 'local-ai-instances.json');
 }
@@ -170,10 +196,11 @@ export async function writeLocalAiInstances(
   const filePath = resolveInstancesFilePath(userId);
   await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
   await fs.writeFile(filePath, JSON.stringify(instances, null, 2), { mode: 0o600 });
-  // Sync pool and queue.
+  // Sync pool and queue. maxConcurrentTasks controls parallelism independently
+  // of instance count (instances handle load balancing, not slot count).
   const { localAiGpuQueue } = await import('./localGpuQueue.js');
   localAiPool.setInstances(instances.map((i) => i.url));
-  localAiGpuQueue.setMaxConcurrent(Math.max(1, instances.length));
+  localAiGpuQueue.setMaxConcurrent(readLocalAiMaxConcurrentTasks(userId));
 }
 
 export async function deleteLocalAiInstance(
@@ -187,9 +214,10 @@ export async function deleteLocalAiInstance(
 
 export function initLocalAiPool(userId: number | string | undefined): void {
   const instances = readLocalAiInstances(userId);
+  const maxConcurrentTasks = readLocalAiMaxConcurrentTasks(userId);
   import('./localGpuQueue.js').then(({ localAiGpuQueue }) => {
     localAiPool.setInstances(instances.map((i) => i.url));
-    localAiGpuQueue.setMaxConcurrent(Math.max(1, instances.length));
+    localAiGpuQueue.setMaxConcurrent(maxConcurrentTasks);
   }).catch(() => {});
 }
 
@@ -213,6 +241,7 @@ export interface LocalAiAuthStatus {
   maxOutputTokens: number;
   contextWindowTokens: number;
   disableProxy: boolean;
+  maxConcurrentTasks: number;
   reason?: string;
 }
 
@@ -226,6 +255,7 @@ export async function getLocalAiAuthStatus(
   const maxOutputTokens = readLocalAiMaxTokens(userId);
   const contextWindowTokens = readLocalAiContextWindow(userId);
   const disableProxy = readLocalAiDisableProxy(userId);
+  const maxConcurrentTasks = readLocalAiMaxConcurrentTasks(userId);
   try {
     // GET /v1/models is available on all major local servers and doubles as a
     // health check — if it responds with a 2xx we consider the server live.
@@ -233,7 +263,7 @@ export async function getLocalAiAuthStatus(
       signal: AbortSignal.timeout(3000),
     });
     if (res.ok) {
-      return { authenticated: true, status: 'authenticated', urlPath, url, maxOutputTokens, contextWindowTokens, disableProxy };
+      return { authenticated: true, status: 'authenticated', urlPath, url, maxOutputTokens, contextWindowTokens, disableProxy, maxConcurrentTasks };
     }
     return {
       authenticated: false,
@@ -243,6 +273,7 @@ export async function getLocalAiAuthStatus(
       maxOutputTokens,
       contextWindowTokens,
       disableProxy,
+      maxConcurrentTasks,
       reason: `Server returned HTTP ${res.status}`,
     };
   } catch (err) {
@@ -255,6 +286,7 @@ export async function getLocalAiAuthStatus(
       maxOutputTokens,
       contextWindowTokens,
       disableProxy,
+      maxConcurrentTasks,
       reason: `Cannot reach server at ${url}: ${message}`,
     };
   }

@@ -129,8 +129,21 @@ router.post(
       const queue = sequentialMode ? localGpuQueue.for(agentProvider) : null;
 
       if (queue && !queue.canRunNow(taskId)) {
-        queue.enqueue({ taskId, agentType, options: runOptions });
+        // Create a queued DB record so the frontend can see this task is waiting after a refresh.
+        const queuedRun = agentRunsDb.createQueued(taskId, agentType, agentProvider);
+        queue.enqueue({ taskId, agentType, options: runOptions, agentRunId: queuedRun.id });
         const position = queue.getQueueLength();
+        broadcastToTaskSubscribersFn?.(taskId, {
+          type: 'agent-run-updated',
+          agentRun: {
+            id: queuedRun.id,
+            status: 'queued',
+            agent_type: agentType,
+            conversation_id: null,
+            created_at: queuedRun.created_at,
+            completed_at: null,
+          },
+        });
         broadcastToTaskSubscribersFn?.(taskId, { type: 'task-queued', position });
         return res.status(202).json({ queued: true, taskId, agentType, position });
       }
@@ -232,8 +245,20 @@ router.post(
 
         if (queue && !queue.canRunNow(task.id)) {
           // GPU is busy with another task — queue this one for later.
-          queue.enqueue({ taskId: task.id, agentType, options: runOptions });
+          const queuedRun = agentRunsDb.createQueued(task.id, agentType, implProvider);
+          queue.enqueue({ taskId: task.id, agentType, options: runOptions, agentRunId: queuedRun.id });
           const position = queue.getQueueLength();
+          broadcastToTaskSubscribersFn?.(task.id, {
+            type: 'agent-run-updated',
+            agentRun: {
+              id: queuedRun.id,
+              status: 'queued',
+              agent_type: agentType,
+              conversation_id: null,
+              created_at: queuedRun.created_at,
+              completed_at: null,
+            },
+          });
           broadcastToTaskSubscribersFn?.(task.id, { type: 'task-queued', position });
           queued.push({ taskId: task.id, agentType });
           continue;
