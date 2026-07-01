@@ -134,6 +134,15 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
           res.end(syntheticBody);
           return;
         }
+        // Inject repetition_penalty if not already set. LM Studio / MLX servers
+        // accept this as an extension field. Prevents runaway repetition loops
+        // when a local model loses instruction context mid-generation.
+        if (!('repetition_penalty' in parsed)) {
+          parsed.repetition_penalty = 1.1;
+          const patched = Buffer.from(JSON.stringify(parsed), 'utf8');
+          forwardRequest(req, res, patched);
+          return;
+        }
       } catch {
         // Malformed JSON — forward normally.
       }

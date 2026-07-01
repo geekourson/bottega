@@ -495,6 +495,23 @@ function ChatInterface({
     ],
   );
 
+  // "Compact & continue": resume a conversation that overflowed the model's
+  // context window. The server truncates the stored history (non-destructively)
+  // to fit the window and continues the turn — so the user doesn't have to
+  // restart from scratch.
+  const handleCompactContinue = useCallback(() => {
+    if (isSending || isStreaming || !isConnected || !activeConversation?.id) return;
+    setIsSending(true);
+    sendMessage('compact-continue', { conversationId: activeConversation.id });
+  }, [
+    isSending,
+    isStreaming,
+    isConnected,
+    activeConversation?.id,
+    setIsSending,
+    sendMessage,
+  ]);
+
   const displayMessages = useMemo<DisplayMessage[]>(() => {
     const historyMessages = convertSessionMessages(sessionMessages);
     if (streamingMessages.length > 0) {
@@ -949,6 +966,24 @@ function ChatInterface({
           onSubmit={handleAskUserSubmit}
           onDismiss={handleDismissAskUserPanel}
         />
+      )}
+
+      {/* Recovery action for context-window overflow on local models: compact
+          (truncate) the history and continue without restarting the conversation.
+          Shown when the conversation is idle and a session exists. */}
+      {!isSending && !isStreaming && claudeSessionId && activeConversation?.id && (
+        <div className="px-4 pt-1 flex justify-end">
+          <button
+            type="button"
+            onClick={handleCompactContinue}
+            disabled={!isConnected}
+            title="Tronque l'historique trop long pour tenir dans la fenêtre du modèle, puis continue la tâche."
+            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            data-testid="compact-continue-button"
+          >
+            Compacter & continuer
+          </button>
+        </div>
       )}
 
       <MessageInput

@@ -7,7 +7,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { promises as fs } from 'fs';
 import { conversationsDb, tasksDb, agentRunsDb } from '../../database/db.js';
 import { resolveResumeModelEffort } from '../agentModelSettings.js';
-import { resolveTaskWorkingDir } from '../worktree.js';
+import { resolveTaskWorkingDir, getWorktreePath } from '../worktree.js';
 import { getGitHubToken } from '../githubCredentials.js';
 import { generateConversationTitle } from '../titleGenerator.js';
 import {
@@ -191,13 +191,28 @@ export async function startConversation(
     effort,
     disallowedTools: normalizedOptions.disallowedTools,
     env: sdkEnv,
+    // Hard worktree containment via a PreToolUse hook (fires even under
+    // bypassPermissions, where canUseTool never runs for auto-approved edits).
+    worktreeRoot: getWorktreePath(taskWithProject.repo_folder_path, taskId),
+    enforceWorktree: taskWithProject.uses_worktree === 1,
     canUseTool: buildCanUseTool({
       conversationId,
       broadcastFn,
       taskId,
       broadcastToTaskSubscribersFn,
+      worktreeRoot: getWorktreePath(taskWithProject.repo_folder_path, taskId),
+      enforceWorktree: taskWithProject.uses_worktree === 1,
     }),
     autoCompact: true,
+    // Tell the SDK the local model's real window so it compacts MID-TURN (the
+    // truncating session store only runs at load/resume, so a single long agent
+    // turn could otherwise grow past the window and 400). Only forwarded when
+    // >= 100k (SDK floor); smaller windows rely on the truncating store.
+    autoCompactWindow: isOllama
+      ? readOllamaContextWindow(userId)
+      : isLocalAi
+        ? readLocalAiContextWindow(userId)
+        : undefined,
   });
 
   // Local inference servers (Ollama, local-ai) don't support extended thinking
@@ -678,16 +693,27 @@ export async function sendMessage(
     sessionId: claudeSessionId,
     permissionMode,
     env: resumeEnv,
+    // Hard worktree containment via a PreToolUse hook (fires even under
+    // bypassPermissions, where canUseTool never runs for auto-approved edits).
+    worktreeRoot: getWorktreePath(taskWithProject.repo_folder_path, taskId),
+    enforceWorktree: taskWithProject.uses_worktree === 1,
     canUseTool: buildCanUseTool({
       conversationId,
       broadcastFn,
       taskId,
       broadcastToTaskSubscribersFn,
+      worktreeRoot: getWorktreePath(taskWithProject.repo_folder_path, taskId),
+      enforceWorktree: taskWithProject.uses_worktree === 1,
     }),
     model: resumeSdkModel,
     effort: resumeEffort,
     sessionStore: resumeSessionStore,
     autoCompact: true,
+    autoCompactWindow: isOllamaResume
+      ? readOllamaContextWindow(userId)
+      : isLocalAiResume
+        ? readLocalAiContextWindow(userId)
+        : undefined,
   });
 
   // Local inference servers don't support extended thinking or partial-message

@@ -1,3 +1,8 @@
+import {
+  FILE_MUTATING_TOOL_PATHS,
+  pathEscapesWorktree,
+  worktreeEscapeMessage,
+} from './worktreeContainment.js';
 import { conversationsDb, tasksDb } from '../../database/db.js';
 import { resolveProjectKey } from '../conversationContentStore.js';
 import { sqliteSessionStore } from '../sqliteSessionStore.js';
@@ -35,6 +40,12 @@ interface BuildCanUseToolOptions {
   broadcastFn?: BroadcastFn | undefined;
   taskId?: number | undefined;
   broadcastToTaskSubscribersFn?: BroadcastToTaskSubscribersFn | undefined;
+  // Worktree containment (Tier: hard isolation). When `enforceWorktree` is set,
+  // file-mutating tools whose target path escapes `worktreeRoot` are denied —
+  // setting the SDK cwd is not enough because a weak model can write to the
+  // main repo via absolute paths (observed with local providers).
+  worktreeRoot?: string | undefined;
+  enforceWorktree?: boolean | undefined;
 }
 
 interface ResolveOptions {
@@ -59,12 +70,36 @@ export function buildCanUseTool({
   broadcastFn,
   taskId,
   broadcastToTaskSubscribersFn,
+  worktreeRoot,
+  enforceWorktree,
 }: BuildCanUseToolOptions = {}) {
   return async function canUseTool(
     toolName: string,
     input: CanUseToolInput,
     options: ToolUseOptions,
   ): Promise<CanUseToolResult> {
+    // Hard worktree containment: block any file-mutating tool whose target
+    // escapes the worktree. NOTE: under `bypassPermissions` (our default) the
+    // SDK never invokes canUseTool for auto-approved edits, so the REAL
+    // enforcement is the PreToolUse hook in worktreeContainment.ts. This branch
+    // is defense-in-depth for non-bypass modes / future providers that do route
+    // edits through canUseTool.
+    if (enforceWorktree && worktreeRoot) {
+      const pathField = FILE_MUTATING_TOOL_PATHS[toolName];
+      if (pathField) {
+        const target = (input as Record<string, unknown> | undefined)?.[pathField];
+        if (typeof target === 'string' && pathEscapesWorktree(worktreeRoot, target)) {
+          console.warn(
+            `[Worktree] Blocked ${toolName} on "${target}" — outside worktree ${worktreeRoot}`,
+          );
+          return {
+            behavior: 'deny',
+            message: worktreeEscapeMessage(worktreeRoot, target),
+          };
+        }
+      }
+    }
+
     if (toolName !== 'AskUserQuestion') {
       return { behavior: 'allow', updatedInput: input };
     }

@@ -96,6 +96,14 @@ export type ClientToServerMessage =
       provider?: string;
     }
   | {
+      // Force a "compact & continue": resume the conversation with a truncated
+      // history (local providers truncate at the session-store boundary) and a
+      // continuation prompt, so a turn that overflowed the model's context
+      // window can proceed without restarting the conversation from scratch.
+      type: 'compact-continue';
+      conversationId: ConversationId;
+    }
+  | {
       type: 'ask-user-question-answer';
       conversationId: ConversationId;
       toolUseId: string;

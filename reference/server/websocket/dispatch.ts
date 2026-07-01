@@ -32,6 +32,7 @@ import {
 import {
   conversationsDb,
   tasksDb,
+  agentRunsDb,
 } from '../database/db.js';
 import { hasProjectAccess } from '../services/projectService.js';
 import { activeSessions } from '../services/conversation/sessionState.js';
@@ -291,6 +292,82 @@ export async function dispatchClientMessage(
         });
       } catch (error) {
         console.error('[WebSocket] Conversation error:', error);
+        sendError(ws, { type: 'claude-error', error: errorMessage(error) });
+      }
+      return;
+    }
+
+    case 'compact-continue': {
+      const { conversationId } = data;
+      const access = authorizeConversationAccess(conversationId, userId);
+      if (!access.ok) {
+        console.warn(
+          `[WS] not authorized: compact-continue conversationId=${conversationId} userId=${userId} reason=${access.reason}`,
+        );
+        sendError(ws, { type: 'claude-error', error: 'Not authorized' });
+        return;
+      }
+
+      // Same one-turn-per-conversation guard as claude-command: don't compact a
+      // conversation that already has a turn in flight.
+      if (getActiveStreamingByConversation(conversationId)) {
+        sendError(ws, {
+          type: 'conversation-busy',
+          conversationId,
+          error: 'Claude is still working on this conversation — wait for the current turn to finish.',
+        });
+        return;
+      }
+
+      const compactBroadcastFn: BroadcastFn = (convId, msg) =>
+        broadcastToConversationSubscribersFn(convId, msg);
+
+      // If this conversation belongs to an agent run that was marked 'failed'
+      // (typically the turn that overflowed the context window), flip it back to
+      // 'running'. Without this the UI keeps showing "Failed" while the compacted
+      // turn works, and the completion handler — which only chains when the run
+      // is 'running' — would refuse to mark it completed or advance the workflow.
+      const compactConv = conversationsDb.getById(conversationId);
+      if (compactConv?.task_id != null) {
+        const taskId = compactConv.task_id;
+        const linkedRun = agentRunsDb
+          .getByTask(taskId)
+          .find((r) => r.conversation_id === conversationId);
+        if (linkedRun && linkedRun.status !== 'running' && linkedRun.status !== 'completed') {
+          const updated = agentRunsDb.updateStatus(linkedRun.id, 'running');
+          broadcastToTaskSubscribersFn(taskId, {
+            type: 'agent-run-updated',
+            agentRun: {
+              id: linkedRun.id,
+              status: 'running',
+              agent_type: linkedRun.agent_type,
+              conversation_id: conversationId,
+              created_at: updated?.created_at ?? linkedRun.created_at,
+              completed_at: null,
+            },
+          });
+        }
+      }
+
+      try {
+        console.log('[DEBUG] Compact & continue for conversation:', conversationId);
+        // Resume with a continuation prompt. For local providers the resume path
+        // truncates the stored history to fit the model's context window
+        // (createTruncatingSessionStore), so an overflowed conversation can
+        // proceed. The stored transcript is left intact (non-destructive).
+        await adapterSendMessage(
+          conversationId,
+          'The conversation history was compacted to fit the model context window. ' +
+            'Continue the task from where you left off; do not repeat work already done.',
+          {
+            broadcastFn: compactBroadcastFn,
+            broadcastToTaskSubscribersFn,
+            userId,
+            permissionMode: 'bypassPermissions',
+          },
+        );
+      } catch (error) {
+        console.error('[WebSocket] compact-continue error:', error);
         sendError(ws, { type: 'claude-error', error: errorMessage(error) });
       }
       return;

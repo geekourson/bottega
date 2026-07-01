@@ -24,6 +24,10 @@ vi.mock('../database/db.js', () => ({
   tasksDb: {
     getById: vi.fn(),
   },
+  agentRunsDb: {
+    getByTask: vi.fn(() => []),
+    updateStatus: vi.fn(),
+  },
   projectMembersDb: {
     isMember: vi.fn(),
   },
@@ -58,6 +62,7 @@ import {
 import {
   conversationsDb,
   tasksDb,
+  agentRunsDb,
 } from '../database/db.js';
 import { hasProjectAccess } from '../services/projectService.js';
 import { activeSessions } from '../services/conversation/sessionState.js';
@@ -259,6 +264,98 @@ describe('dispatchClientMessage', () => {
         type: 'claude-error',
         error: 'adapter boom',
       });
+    });
+  });
+
+  describe('compact-continue', () => {
+    it('resumes the conversation with a continuation prompt when authorized', async () => {
+      seedAuthSuccess();
+      const ws = makeWs();
+      const ctx = makeCtx({ ws });
+
+      await dispatchClientMessage(ctx, {
+        type: 'compact-continue',
+        conversationId: 99,
+      });
+
+      expect(adapterSendMessage).toHaveBeenCalledWith(
+        99,
+        expect.stringContaining('compacted'),
+        expect.objectContaining({ userId: 42, permissionMode: 'bypassPermissions' }),
+      );
+      expect(ws.send).not.toHaveBeenCalled();
+    });
+
+    it('rejects with conversation-busy when a turn is already in flight', async () => {
+      seedAuthSuccess();
+      vi.mocked(getActiveStreamingByConversation).mockReturnValueOnce({
+        sessionId: 'sess-abc',
+        taskId: 7,
+        conversationId: 99,
+      });
+      const ws = makeWs();
+      const ctx = makeCtx({ ws });
+
+      await dispatchClientMessage(ctx, {
+        type: 'compact-continue',
+        conversationId: 99,
+      });
+
+      expect(adapterSendMessage).not.toHaveBeenCalled();
+      expect(lastSent(ws)).toMatchObject({ type: 'conversation-busy', conversationId: 99 });
+    });
+
+    it('refuses compact for a foreign conversation (not authorized)', async () => {
+      vi.mocked(conversationsDb.getById).mockReturnValue({ id: 99, task_id: 7 } as never);
+      vi.mocked(tasksDb.getById).mockReturnValue({ id: 7, project_id: 3 } as never);
+      vi.mocked(hasProjectAccess).mockReturnValue(false);
+      const ws = makeWs();
+      const ctx = makeCtx({ ws });
+
+      await dispatchClientMessage(ctx, {
+        type: 'compact-continue',
+        conversationId: 99,
+      });
+
+      expect(adapterSendMessage).not.toHaveBeenCalled();
+      expect(lastSent(ws)).toMatchObject({ type: 'claude-error', error: 'Not authorized' });
+    });
+
+    it('reactivates a failed linked agent run back to running before resuming', async () => {
+      seedAuthSuccess();
+      vi.mocked(agentRunsDb.getByTask).mockReturnValueOnce([
+        { id: 5, conversation_id: 99, agent_type: 'planification', status: 'failed', created_at: 't0' },
+      ] as never);
+      const ws = makeWs();
+      const ctx = makeCtx({ ws });
+
+      await dispatchClientMessage(ctx, { type: 'compact-continue', conversationId: 99 });
+
+      // The run is flipped back to running and the board is told.
+      expect(agentRunsDb.updateStatus).toHaveBeenCalledWith(5, 'running');
+      expect(ctx.broadcastToTaskSubscribersFn).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({
+          type: 'agent-run-updated',
+          agentRun: expect.objectContaining({ id: 5, status: 'running' }),
+        }),
+      );
+      // ...and the turn resumes.
+      expect(adapterSendMessage).toHaveBeenCalled();
+    });
+
+    it('does not touch a completed linked agent run', async () => {
+      seedAuthSuccess();
+      vi.mocked(agentRunsDb.getByTask).mockReturnValueOnce([
+        { id: 5, conversation_id: 99, agent_type: 'planification', status: 'completed', created_at: 't0' },
+      ] as never);
+      const ws = makeWs();
+      const ctx = makeCtx({ ws });
+
+      await dispatchClientMessage(ctx, { type: 'compact-continue', conversationId: 99 });
+
+      expect(agentRunsDb.updateStatus).not.toHaveBeenCalled();
+      expect(adapterSendMessage).toHaveBeenCalled();
     });
   });
 

@@ -13,6 +13,8 @@ import { tasksDb } from '../database/db.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../scripts');
+
 interface FileContext {
   path?: string;
   line?: number | null;
@@ -43,7 +45,7 @@ interface ReviewWebhookContext {
  * Pre-rendered {{prCreateOrVerifyBlock}} — the "create a new PR" vs "verify the
  * existing PR" opening step of the PR/CI procedure inlined into pr.md and yolo.md.
  */
-function buildPrCreateOrVerifyBlock(taskId: number, prUrl: string | null | undefined): string {
+function buildPrCreateOrVerifyBlock(taskId: number, prUrl: string | null | undefined, scriptsPath: string): string {
   if (prUrl) {
     return `### 1. Verify PR Exists
 A PR already exists at ${prUrl}. Skip to step 2.`;
@@ -55,7 +57,7 @@ Create a PR for this task:
 3. Verify there are commits ahead of the base branch: \`git log origin/main..HEAD --oneline\`
    - **If no commits ahead** (and no uncommitted changes were found in step 1): there is nothing to submit. Run the completion script and stop:
    \`\`\`bash
-   tsx /home/ubuntu/bottega/reference/scripts/complete-pr.ts ${taskId}
+   tsx ${scriptsPath}/complete-pr.ts ${taskId}
    \`\`\`
 4. Push to origin: \`git push -u origin $(git branch --show-current)\`
 5. Create PR with a short specific title and concise summary body. Replace the placeholders with the actual task title and implementation summary:
@@ -70,7 +72,7 @@ export async function generatePlanificationMessage(
 ): Promise<string> {
   const promptName = isTechnical ? 'planification' : 'planification-nontechnical';
   const planTemplatePath = resolvePromptPath('plan-template', projectId);
-  return renderPrompt(promptName, { taskDocPath, taskId, planTemplatePath }, projectId);
+  return renderPrompt(promptName, { taskDocPath, taskId, planTemplatePath, scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generateImplementationMessage(
@@ -78,7 +80,7 @@ export async function generateImplementationMessage(
   taskId: number,
   projectId?: number,
 ): Promise<string> {
-  return renderPrompt('implementation', { taskDocPath, taskId }, projectId);
+  return renderPrompt('implementation', { taskDocPath, taskId, scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generateReviewMessage(
@@ -86,7 +88,7 @@ export async function generateReviewMessage(
   taskId: number,
   projectId?: number,
 ): Promise<string> {
-  return renderPrompt('review', { taskDocPath, taskId }, projectId);
+  return renderPrompt('review', { taskDocPath, taskId, scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generateRefinementMessage(
@@ -94,7 +96,7 @@ export async function generateRefinementMessage(
   taskId: number,
   projectId?: number,
 ): Promise<string> {
-  return renderPrompt('refinement', { taskDocPath, taskId }, projectId);
+  return renderPrompt('refinement', { taskDocPath, taskId, scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generatePrAgentMessage(
@@ -106,8 +108,8 @@ export async function generatePrAgentMessage(
   const prContextLine = prUrl
     ? `- Existing PR: ${prUrl}`
     : '- No PR exists yet - you need to create one';
-  const prCreateOrVerifyBlock = buildPrCreateOrVerifyBlock(taskId, prUrl);
-  return renderPrompt('pr', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock }, projectId);
+  const prCreateOrVerifyBlock = buildPrCreateOrVerifyBlock(taskId, prUrl, SCRIPTS_DIR);
+  return renderPrompt('pr', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock, scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generateYoloMessage(
@@ -119,8 +121,8 @@ export async function generateYoloMessage(
   const prContextLine = prUrl
     ? `- Existing PR: ${prUrl}`
     : '- No PR exists yet - you will create one at the end';
-  const prCreateOrVerifyBlock = buildPrCreateOrVerifyBlock(taskId, prUrl);
-  return renderPrompt('yolo', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock }, projectId);
+  const prCreateOrVerifyBlock = buildPrCreateOrVerifyBlock(taskId, prUrl, SCRIPTS_DIR);
+  return renderPrompt('yolo', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock, scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generatePrAgentCommentMessage(
@@ -169,7 +171,7 @@ ${fileContext.diffHunk}
 ${quotedComment}
 ${fileLocationSection}`;
 
-  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection }, projectId);
+  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection, scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generatePrAgentReviewMessage(
@@ -235,7 +237,7 @@ ${commentEntries}
 
   const feedbackSection = `## User Feedback${reviewBodySection}${inlineCommentsSection}`;
 
-  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection }, projectId);
+  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection, scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generateUxDesignMessage(
@@ -262,8 +264,7 @@ export async function generatePoMessage(
       .join('\n');
   }
 
-  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-  const createTaskScriptPath = path.resolve(scriptDir, '../../scripts/create-task.ts');
+  const createTaskScriptPath = path.join(SCRIPTS_DIR, 'create-task.ts');
 
   const trimmed = userInstructionsRaw?.trim();
   const userInstructions = trimmed

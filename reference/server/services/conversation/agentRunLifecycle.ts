@@ -243,6 +243,26 @@ async function handleAgentChaining(
       return;
     }
 
+    // Only auto-chain if the planner actually finished (ran complete-plan.ts which
+    // sets planification_complete = 1). If the model generated garbage text instead
+    // of calling tools, the script never ran — block rather than chain to an
+    // implementation that has no plan to work from.
+    const freshTask = tasksDb.getById(taskId);
+    if (!freshTask?.planification_complete) {
+      console.log(
+        `[ConversationAdapter] Task ${taskId} planification did not complete (complete-plan.ts not run) — blocking workflow`,
+      );
+      tasksDb.blockWorkflow(taskId);
+      if (broadcastToTaskSubscribersFn) {
+        broadcastToTaskSubscribersFn(taskId, {
+          type: 'task-blocked',
+          reason: 'plan_not_completed',
+        });
+      }
+      releaseLocalGpuQueue(taskId, context);
+      return;
+    }
+
     console.log(
       `[ConversationAdapter] Auto-starting implementation after planification for non-technical owner (task ${taskId})`,
     );

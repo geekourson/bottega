@@ -44,10 +44,16 @@ async function createTask(
     process.exit(1);
   }
 
-  const created = tasksDb.create(projectId, title.trim(), false, null);
+  // Decide worktree usage ONCE and keep the DB flag in sync with the worktree
+  // actually created below. If these diverge (flag=0 while a worktree exists on
+  // disk), resolveTaskWorkingDir() falls back to the main repo and the
+  // implementation agent silently writes to main instead of its worktree.
+  const isGit = await isGitRepository(project.repo_folder_path);
+
+  const created = tasksDb.create(projectId, title.trim(), false, null, false, isGit);
 
   // Create a git worktree for the task if the project is a git repository
-  if (await isGitRepository(project.repo_folder_path)) {
+  if (isGit) {
     const result = await createWorktree(
       project.repo_folder_path,
       created.id,

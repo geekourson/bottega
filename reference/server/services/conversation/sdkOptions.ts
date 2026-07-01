@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 import { sqliteSessionStore, type SqliteSessionStore } from '../sqliteSessionStore.js';
+import { buildWorktreeContainmentHooks } from './worktreeContainment.js';
 import type { PermissionMode } from '@shared/websocket/messages';
 
 // bypassPermissions allows Claude to write files without prompting.
@@ -65,6 +66,15 @@ export interface MapOptionsInput {
   systemPromptAppend?: string | undefined;
   canUseTool?: unknown;
   env?: Record<string, string | undefined> | undefined;
+  /**
+   * Worktree containment (hard isolation). When `enforceWorktree` is set, a
+   * `PreToolUse` hook denies any file-mutating tool whose target escapes
+   * `worktreeRoot`. This is the enforcement that setting `cwd` cannot provide
+   * and that `canUseTool` cannot provide under `bypassPermissions` (the CLI
+   * never calls `canUseTool` for auto-approved edits). See worktreeContainment.ts.
+   */
+  worktreeRoot?: string | undefined;
+  enforceWorktree?: boolean | undefined;
   /** Required — Claude turns always run on an explicit model (never the SDK default). */
   model: string;
   /** Reasoning effort, or null when none was chosen. */
@@ -83,6 +93,14 @@ export interface MapOptionsInput {
    * Ollama/local-ai already use createTruncatingSessionStore for this.
    */
   autoCompact?: boolean;
+  /**
+   * Context window (tokens) the SDK should auto-compact against. The SDK's zod
+   * schema enforces a hard `min(100_000)` floor, so callers must only pass
+   * values >= 100_000 (smaller local windows rely on createTruncatingSessionStore
+   * instead). Lets a local model with a real window >= 100k (e.g. 131072) get
+   * mid-turn compaction the truncating store can't provide (it only runs at load).
+   */
+  autoCompactWindow?: number | undefined;
 }
 
 export interface SDKOptions {
@@ -101,7 +119,8 @@ export interface SDKOptions {
   sessionStore?: typeof sqliteSessionStore;
   sessionStoreFlush?: 'eager' | 'lazy';
   mcpServers?: Record<string, unknown>;
-  settings?: { autoCompactEnabled?: boolean };
+  settings?: { autoCompactEnabled?: boolean; autoCompactWindow?: number };
+  hooks?: Record<string, unknown>;
 }
 
 /**
@@ -170,6 +189,12 @@ export function mapOptionsToSDK(options: MapOptionsInput): SDKOptions {
 
   if (options.autoCompact) {
     sdkOptions.settings = { autoCompactEnabled: true };
+    // The SDK rejects autoCompactWindow < 100_000 (zod floor). Only forward a
+    // real window at or above the floor; smaller local windows are handled by
+    // createTruncatingSessionStore at the load boundary instead.
+    if (typeof options.autoCompactWindow === 'number' && options.autoCompactWindow >= 100_000) {
+      sdkOptions.settings.autoCompactWindow = options.autoCompactWindow;
+    }
   }
 
   // Custom transcript backend. The SDK calls SqliteSessionStore.append/load/...
@@ -183,6 +208,17 @@ export function mapOptionsToSDK(options: MapOptionsInput): SDKOptions {
   // reloads of /api/conversations/:id/messages return an empty history —
   // the WS stream stays in sync, but SQLite is stale until the turn closes.
   sdkOptions.sessionStoreFlush = 'eager';
+
+  // Hard worktree containment. A PreToolUse hook denies file-mutating tools
+  // whose absolute path escapes the worktree. Unlike the canUseTool guard, this
+  // fires even under `bypassPermissions` — the only mechanism that does.
+  const containmentHooks = buildWorktreeContainmentHooks({
+    worktreeRoot: options.worktreeRoot,
+    enforceWorktree: options.enforceWorktree,
+  });
+  if (containmentHooks) {
+    sdkOptions.hooks = containmentHooks;
+  }
 
   return sdkOptions;
 }

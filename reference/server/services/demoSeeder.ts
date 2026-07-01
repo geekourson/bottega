@@ -156,10 +156,13 @@ export async function seedDemoProject(
     }
   }
 
-  const task = tasksDb.create(projectId, DEMO_TASK_TITLE, false, userId);
+  // Keep the uses_worktree flag in sync with the worktree actually created
+  // below, otherwise resolveTaskWorkingDir() falls back to the main repo.
+  const isGit = await isGitRepository(targetDir);
+  const task = tasksDb.create(projectId, DEMO_TASK_TITLE, false, userId, false, isGit);
   writeTaskDoc(projectId, task.id, TASK_DOC_TEMPLATE);
 
-  if (await isGitRepository(targetDir)) {
+  if (isGit) {
     await createWorktree(targetDir, task.id, DEMO_TASK_TITLE, null);
   }
 

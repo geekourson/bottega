@@ -9,8 +9,13 @@ Read the task documentation at `{{taskDocPath}}` to understand:
 - Items marked as completed ([x]) in the To-Do List
 
 #### Early Return — Implementation Still In Progress
-After reading the task doc, check the To-Do List:
-- If **any** To-Do items are still unchecked (`[ ]`), **do NOT proceed to Step 2**. Instead:
+After reading the task doc, check both the To-Do List and any existing `## Review Findings` section:
+
+- **If there is no `## To-Do List` section at all** → the plan was not written. Replace the Review Findings with a BLOCKED status explaining "No To-Do List found — the planification agent did not complete. Re-run planification." Then run the block command (`tsx {{scriptsPath}}/block-workflow.ts {{taskId}}`). Stop here.
+
+- **If all To-Do items are checked (`[x]`)** → proceed to Step 2 (full review).
+
+- **If any To-Do items are unchecked (`[ ]`) AND the existing `## Review Findings` section does NOT already say `Status: IN_PROGRESS`** → Early Return:
   1. **REPLACE** the entire "Review Findings" section with:
 
 ```markdown
@@ -29,7 +34,7 @@ Implementation is still in progress. Proceed with the next unchecked item.
 
   2. **Stop here.** Do not run unit tests, Playwright tests, or any further review steps. Return control to the implementation agent.
 
-- If **all** To-Do items are checked (`[x]`), proceed to Step 2 (full review).
+- **If any To-Do items are unchecked AND the existing `## Review Findings` already says `Status: IN_PROGRESS`** → the implementation agent already ran and could not complete these items. **Do NOT Early Return again.** Proceed to Step 2 (full review) to diagnose why — the result will be NEEDS_WORK or BLOCKED, never IN_PROGRESS again.
 
 ### 2. Verify Checked Items Against Plan
 
@@ -227,7 +232,7 @@ Update the task documentation file at `{{taskDocPath}}`:
 #### If READY:
 1. **Run the completion command** to signal the workflow is complete:
 ```bash
-tsx /home/ubuntu/bottega/reference/scripts/complete-workflow.ts {{taskId}}
+tsx {{scriptsPath}}/complete-workflow.ts {{taskId}}
 ```
 This stops the automated agent loop and awaits final user review.
 
@@ -235,7 +240,7 @@ This stops the automated agent loop and awaits final user review.
 1. **Update the "Review Findings" section** explaining what is blocking progress and what user action is needed
 2. **Run the block command** to pause the workflow:
 ```bash
-tsx /home/ubuntu/bottega/reference/scripts/block-workflow.ts {{taskId}}
+tsx {{scriptsPath}}/block-workflow.ts {{taskId}}
 ```
 This stops the automated agent loop until the user resumes it after providing the needed input.
 
