@@ -398,13 +398,19 @@ function TaskDetailView({
     setWorktreeError(null);
     try {
       if (worktreeStatus) {
-        // Disable: delete the worktree (force=true since it's pending, no meaningful changes)
-        const response = await api.tasks.discardWorktree(task.id, true);
-        if (response.ok) {
+        // Disable: switch back to main by deleting the worktree. If it still
+        // holds uncommitted files, cleanupWorktreeOnComplete prompts for
+        // confirmation (409 → confirm → force) before discarding — so clicking
+        // "Worktree actif" never silently throws away work. Declining keeps the
+        // worktree active and cancels the switch.
+        const result = await cleanupWorktreeOnComplete(task.id);
+        if (result.aborted) {
+          return;
+        }
+        if (result.ok) {
           setWorktreeStatus(null);
         } else {
-          const data = await response.json() as { error?: string };
-          setWorktreeError(data.error || 'Failed to remove worktree');
+          setWorktreeError(result.error || 'Failed to remove worktree');
         }
       } else {
         // Enable: create a worktree
