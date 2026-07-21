@@ -103,6 +103,35 @@ export function pathEscapesWorktree(worktreeRoot: string, filePath: string): boo
   return abs !== root && !abs.startsWith(root + path.sep);
 }
 
+/**
+ * True when `filePath` resolves to one of `allowedWritePaths` (exact file) or
+ * under one of them (directory prefix, sep-bounded so `task-7.md.bak` never
+ * matches an allowlisted `task-7.md`). Relative paths resolve against the
+ * worktree root, matching pathEscapesWorktree.
+ *
+ * This exists for the task doc: it lives in the central archive
+ * (`~/.bottega/projects/{id}/tasks/task-{id}.md`) so it survives worktree
+ * destruction on merge — yet the planning/review agents MUST write it. Without
+ * an allowlist the containment hook denied that write and the deny message
+ * steered the planner into writing the plan inside the worktree, where nothing
+ * ever reads it (observed on task-71).
+ */
+export function pathIsAllowlisted(
+  worktreeRoot: string,
+  allowedWritePaths: readonly string[],
+  filePath: string,
+): boolean {
+  if (!filePath || allowedWritePaths.length === 0) return false;
+  const root = path.resolve(worktreeRoot);
+  const abs = path.isAbsolute(filePath)
+    ? path.resolve(filePath)
+    : path.resolve(root, filePath);
+  return allowedWritePaths.some((allowed) => {
+    const a = path.resolve(allowed);
+    return abs === a || abs.startsWith(a + path.sep);
+  });
+}
+
 /** Human-readable deny reason fed back to the model so it retries inside the worktree. */
 export function worktreeEscapeMessage(worktreeRoot: string, target: string): string {
   return (
@@ -149,8 +178,14 @@ interface PreToolUseDenyOutput {
 export function buildWorktreeContainmentHooks(opts: {
   worktreeRoot?: string | undefined;
   enforceWorktree?: boolean | undefined;
+  /**
+   * Absolute paths (files or directories) OUTSIDE the worktree that
+   * file-mutating tools may still target — the task doc in the central
+   * archive, nothing repo-shaped. Does NOT loosen the Bash gate.
+   */
+  allowedWritePaths?: readonly string[] | undefined;
 }): Record<string, unknown> | undefined {
-  const { worktreeRoot, enforceWorktree } = opts;
+  const { worktreeRoot, enforceWorktree, allowedWritePaths = [] } = opts;
   if (!enforceWorktree || !worktreeRoot) return undefined;
 
   const preToolUse = async (
@@ -182,6 +217,9 @@ export function buildWorktreeContainmentHooks(opts: {
     if (!pathField) return {};
     const target = input?.tool_input?.[pathField];
     if (typeof target !== 'string' || !pathEscapesWorktree(worktreeRoot, target)) {
+      return {};
+    }
+    if (pathIsAllowlisted(worktreeRoot, allowedWritePaths, target)) {
       return {};
     }
     console.warn(

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildWorktreeContainmentHooks,
   pathEscapesWorktree,
+  pathIsAllowlisted,
 } from './worktreeContainment.js';
 
 const WORKTREE = '/repos/HyphoSphere-worktrees/task-48';
@@ -100,6 +101,71 @@ describe('buildWorktreeContainmentHooks — PreToolUse enforcement (fires under 
   it('blocks a sibling path that merely shares the worktree name prefix', async () => {
     const { cb } = getHook();
     expect(isDeny(await run(cb, 'Write', '/repos/HyphoSphere-worktrees/task-48-evil/x.txt'))).toBe(true);
+  });
+});
+
+describe('buildWorktreeContainmentHooks — allowedWritePaths (task doc in the central archive)', () => {
+  const TASK_DOC = '/home/u/.bottega/projects/10/tasks/task-48.md';
+
+  function getAllowlistedHook(allowedWritePaths: string[]) {
+    const hooks = buildWorktreeContainmentHooks({
+      worktreeRoot: WORKTREE,
+      enforceWorktree: true,
+      allowedWritePaths,
+    });
+    const matchers = (hooks?.PreToolUse ?? []) as Array<{
+      hooks: Array<(input: unknown) => Promise<unknown>>;
+    }>;
+    return matchers[0]?.hooks[0];
+  }
+
+  it('allows a Write to the allowlisted task doc outside the worktree', async () => {
+    const cb = getAllowlistedHook([TASK_DOC]);
+    expect(isDeny(await run(cb, 'Write', TASK_DOC))).toBe(false);
+  });
+
+  it('allows an Edit to the allowlisted task doc', async () => {
+    const cb = getAllowlistedHook([TASK_DOC]);
+    expect(isDeny(await run(cb, 'Edit', TASK_DOC))).toBe(false);
+  });
+
+  it("denies a SIBLING task's doc in the same archive folder", async () => {
+    const cb = getAllowlistedHook([TASK_DOC]);
+    expect(isDeny(await run(cb, 'Write', '/home/u/.bottega/projects/10/tasks/task-49.md'))).toBe(true);
+  });
+
+  it('denies a path that merely extends the allowlisted file name', async () => {
+    const cb = getAllowlistedHook([TASK_DOC]);
+    expect(isDeny(await run(cb, 'Write', `${TASK_DOC}.bak`))).toBe(true);
+  });
+
+  it('still denies the main repo when an allowlist is present', async () => {
+    const cb = getAllowlistedHook([TASK_DOC]);
+    expect(isDeny(await run(cb, 'Write', '/repos/HyphoSphere/src/GameState.java'))).toBe(true);
+  });
+
+  it('allows files under an allowlisted DIRECTORY entry', async () => {
+    const cb = getAllowlistedHook(['/home/u/.bottega/projects/10/tasks/task-48']);
+    expect(isDeny(await run(cb, 'Write', '/home/u/.bottega/projects/10/tasks/task-48/input_files/a.txt'))).toBe(false);
+  });
+});
+
+describe('pathIsAllowlisted', () => {
+  const DOC = '/home/u/.bottega/projects/10/tasks/task-48.md';
+  it('matches the exact allowlisted file', () => {
+    expect(pathIsAllowlisted(WORKTREE, [DOC], DOC)).toBe(true);
+  });
+  it('matches sep-bounded children of an allowlisted directory', () => {
+    expect(pathIsAllowlisted(WORKTREE, ['/home/u/.bottega'], DOC)).toBe(true);
+  });
+  it('rejects a name-prefix false positive (task-48.md.bak)', () => {
+    expect(pathIsAllowlisted(WORKTREE, [DOC], `${DOC}.bak`)).toBe(false);
+  });
+  it('rejects everything on an empty allowlist', () => {
+    expect(pathIsAllowlisted(WORKTREE, [], DOC)).toBe(false);
+  });
+  it('normalizes traversal segments before matching', () => {
+    expect(pathIsAllowlisted(WORKTREE, [DOC], '/home/u/.bottega/../.bottega/projects/10/tasks/task-48.md')).toBe(true);
   });
 });
 

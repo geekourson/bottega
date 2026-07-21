@@ -75,6 +75,13 @@ export interface MapOptionsInput {
    */
   worktreeRoot?: string | undefined;
   enforceWorktree?: boolean | undefined;
+  /**
+   * Paths outside the worktree that file-mutating tools may still target.
+   * Used for the task doc, which lives in the central archive
+   * (`~/.bottega/...`) precisely so it survives worktree destruction — the
+   * planning/review agents must be able to write it despite containment.
+   */
+  allowedWritePaths?: readonly string[] | undefined;
   /** Required — Claude turns always run on an explicit model (never the SDK default). */
   model: string;
   /** Reasoning effort, or null when none was chosen. */
@@ -215,6 +222,7 @@ export function mapOptionsToSDK(options: MapOptionsInput): SDKOptions {
   const containmentHooks = buildWorktreeContainmentHooks({
     worktreeRoot: options.worktreeRoot,
     enforceWorktree: options.enforceWorktree,
+    allowedWritePaths: options.allowedWritePaths,
   });
   if (containmentHooks) {
     sdkOptions.hooks = containmentHooks;

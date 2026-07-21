@@ -104,4 +104,32 @@ describe('buildCanUseTool — worktree containment', () => {
     );
     expect(result.behavior).toBe('deny');
   });
+
+  it('allows a Write to an allowlisted path outside the worktree (the task doc)', async () => {
+    const canUseTool = buildCanUseTool({
+      worktreeRoot: WORKTREE,
+      enforceWorktree: true,
+      allowedWritePaths: ['/home/u/.bottega/projects/10/tasks/task-55.md'],
+    });
+    const result = await canUseTool(
+      'Write',
+      { file_path: '/home/u/.bottega/projects/10/tasks/task-55.md', content: 'plan' } as never,
+      opts,
+    );
+    expect(result.behavior).toBe('allow');
+  });
+
+  it('still denies the main repo when an allowlist is present', async () => {
+    const canUseTool = buildCanUseTool({
+      worktreeRoot: WORKTREE,
+      enforceWorktree: true,
+      allowedWritePaths: ['/home/u/.bottega/projects/10/tasks/task-55.md'],
+    });
+    const result = await canUseTool(
+      'Write',
+      { file_path: '/repos/HyphoSphere/src/SoundManager.java', content: 'x' } as never,
+      opts,
+    );
+    expect(result.behavior).toBe('deny');
+  });
 });

@@ -1,6 +1,7 @@
 import {
   FILE_MUTATING_TOOL_PATHS,
   pathEscapesWorktree,
+  pathIsAllowlisted,
   worktreeEscapeMessage,
 } from './worktreeContainment.js';
 import { conversationsDb, tasksDb } from '../../database/db.js';
@@ -46,6 +47,9 @@ interface BuildCanUseToolOptions {
   // main repo via absolute paths (observed with local providers).
   worktreeRoot?: string | undefined;
   enforceWorktree?: boolean | undefined;
+  // Paths outside the worktree that writes may still target (the task doc in
+  // the central archive). Mirrors buildWorktreeContainmentHooks.
+  allowedWritePaths?: readonly string[] | undefined;
 }
 
 interface ResolveOptions {
@@ -72,6 +76,7 @@ export function buildCanUseTool({
   broadcastToTaskSubscribersFn,
   worktreeRoot,
   enforceWorktree,
+  allowedWritePaths = [],
 }: BuildCanUseToolOptions = {}) {
   return async function canUseTool(
     toolName: string,
@@ -88,7 +93,11 @@ export function buildCanUseTool({
       const pathField = FILE_MUTATING_TOOL_PATHS[toolName];
       if (pathField) {
         const target = (input as Record<string, unknown> | undefined)?.[pathField];
-        if (typeof target === 'string' && pathEscapesWorktree(worktreeRoot, target)) {
+        if (
+          typeof target === 'string' &&
+          pathEscapesWorktree(worktreeRoot, target) &&
+          !pathIsAllowlisted(worktreeRoot, allowedWritePaths, target)
+        ) {
           console.warn(
             `[Worktree] Blocked ${toolName} on "${target}" — outside worktree ${worktreeRoot}`,
           );

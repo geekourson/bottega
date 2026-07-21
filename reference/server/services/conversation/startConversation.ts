@@ -8,6 +8,7 @@ import { promises as fs } from 'fs';
 import { conversationsDb, tasksDb, agentRunsDb } from '../../database/db.js';
 import { resolveResumeModelEffort } from '../agentModelSettings.js';
 import { resolveTaskWorkingDir, getWorktreePath } from '../worktree.js';
+import { getTaskDocPath } from '../documentation.js';
 import { getGitHubToken } from '../githubCredentials.js';
 import { generateConversationTitle } from '../titleGenerator.js';
 import {
@@ -183,6 +184,12 @@ export async function startConversation(
 
   const abortController = new AbortController();
 
+  // The task doc lives in the central archive (~/.bottega), OUTSIDE the
+  // worktree, and the planning/review agents must write it there — exempt it
+  // from containment or the deny message steers the plan into the worktree,
+  // where nothing ever reads it (task-71).
+  const allowedWritePaths = [getTaskDocPath(taskWithProject.project_id, taskId)];
+
   const sdkOptions = mapOptionsToSDK({
     cwd: projectPath,
     permissionMode,
@@ -195,6 +202,7 @@ export async function startConversation(
     // bypassPermissions, where canUseTool never runs for auto-approved edits).
     worktreeRoot: getWorktreePath(taskWithProject.repo_folder_path, taskId),
     enforceWorktree: taskWithProject.uses_worktree === 1,
+    allowedWritePaths,
     canUseTool: buildCanUseTool({
       conversationId,
       broadcastFn,
@@ -202,6 +210,7 @@ export async function startConversation(
       broadcastToTaskSubscribersFn,
       worktreeRoot: getWorktreePath(taskWithProject.repo_folder_path, taskId),
       enforceWorktree: taskWithProject.uses_worktree === 1,
+      allowedWritePaths,
     }),
     autoCompact: true,
     // Tell the SDK the local model's real window so it compacts MID-TURN (the
@@ -686,6 +695,10 @@ export async function sendMessage(
     resumeSessionStore = createTruncatingSessionStore(sqliteSessionStore, readLocalAiContextWindow(userId));
   }
 
+  // The task doc lives in the central archive (~/.bottega), OUTSIDE the
+  // worktree — exempt it from containment (same as startConversation).
+  const resumeAllowedWritePaths = [getTaskDocPath(projectId, taskId)];
+
   // Resume reads transcripts from sqliteSessionStore.load() — no per-user
   // CLAUDE_CONFIG_DIR materialization required.
   const sdkOptions = mapOptionsToSDK({
@@ -697,6 +710,7 @@ export async function sendMessage(
     // bypassPermissions, where canUseTool never runs for auto-approved edits).
     worktreeRoot: getWorktreePath(taskWithProject.repo_folder_path, taskId),
     enforceWorktree: taskWithProject.uses_worktree === 1,
+    allowedWritePaths: resumeAllowedWritePaths,
     canUseTool: buildCanUseTool({
       conversationId,
       broadcastFn,
@@ -704,6 +718,7 @@ export async function sendMessage(
       broadcastToTaskSubscribersFn,
       worktreeRoot: getWorktreePath(taskWithProject.repo_folder_path, taskId),
       enforceWorktree: taskWithProject.uses_worktree === 1,
+      allowedWritePaths: resumeAllowedWritePaths,
     }),
     model: resumeSdkModel,
     effort: resumeEffort,
