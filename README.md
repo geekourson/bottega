@@ -114,7 +114,7 @@ from there.
 ### Getting started
 
 ```bash
-git clone https://github.com/vdaubry/bottega.git
+git clone https://github.com/geekourson/bottega
 cd bottega/reference        # the reference implementation lives here
 npm install -g pnpm@11      # skip if pnpm 11 is already installed
 pnpm install
