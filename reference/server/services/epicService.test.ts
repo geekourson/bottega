@@ -192,6 +192,20 @@ describe('parseBreakdown', () => {
     expect(errors).toMatch(/unknown key "zzz"/);
   });
 
+  it('rejects invalid or duplicated branch names', () => {
+    const invalid = { ...base, subtasks: [{ ...base.subtasks[0], branch: '-oops' }] };
+    expect(parseBreakdown(JSON.stringify(invalid), children).errors[0]).toMatch(/^subtasks\.0\.branch/);
+
+    const dup = {
+      ...base,
+      subtasks: [
+        { key: 'a', projectId: 1, title: 'A', description: 'd', dependsOn: [], branch: 'feature/x' },
+        { key: 'b', projectId: 1, title: 'B', description: 'd', dependsOn: [], branch: 'feature/x' },
+      ],
+    };
+    expect(parseBreakdown(JSON.stringify(dup), children).errors.join()).toMatch(/used twice in the same repository/);
+  });
+
   it('rejects dependency cycles', () => {
     const bad = {
       ...base,
@@ -301,6 +315,25 @@ describe('approveBreakdown', () => {
     expect(overview.subtasks[1]!.dependsOn[0]).toMatchObject({ id: api!.id, satisfied: false });
 
     await expect(approveBreakdown(epicId, userId)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('uses the branch and PR title chosen in the breakdown', async () => {
+    const { umbrellaId, apiId, frontId } = makeUmbrella();
+    const epicId = tasksDb.create(umbrellaId, 'Epic', false, userId).id;
+    const breakdown = sampleBreakdown(apiId, frontId);
+    breakdown.subtasks[1]!.branch = 'feature/invoice-pdf';
+    breakdown.subtasks[1]!.prTitle = 'Invoice PDF endpoint';
+    writeBreakdown(umbrellaId, epicId, breakdown);
+    tasksDb.update(epicId, { planification_complete: 1 });
+
+    const { subtasks } = await approveBreakdown(epicId, userId);
+
+    const api = subtasks.find((t) => t.project_id === apiId)!;
+    expect(createWorktree).toHaveBeenCalledWith(expect.any(String), api.id, 'PDF endpoint', null, 'feature/invoice-pdf');
+    expect(api.pr_title).toBe('Invoice PDF endpoint');
+    const front = subtasks.find((t) => t.project_id === frontId)!;
+    expect(createWorktree).toHaveBeenCalledWith(expect.any(String), front.id, 'Export button', null, null);
+    expect(front.pr_title).toBeNull();
   });
 
   it('starts planning on every sub-task when asked', async () => {

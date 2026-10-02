@@ -389,6 +389,17 @@ function ProposedSubtask({ subtask, titleByKey }: { subtask: BreakdownSubtask; t
           {!expanded && <span className="block text-xs text-muted-foreground">{excerpt(subtask.description)}</span>}
         </span>
       </button>
+      {(subtask.branch || subtask.prTitle) && (
+        <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground pl-6">
+          {subtask.branch && (
+            <span className="flex items-center gap-1">
+              <GitBranch className="w-3 h-3" />
+              <code>{subtask.branch}</code>
+            </span>
+          )}
+          {subtask.prTitle && <span>PR: {subtask.prTitle}</span>}
+        </p>
+      )}
       {expanded && <MarkdownView content={subtask.description} className="pl-6" />}
       {subtask.dependsOn.length > 0 && (
         <p className="text-xs text-amber-700 dark:text-amber-400 flex items-center gap-1 pl-6">

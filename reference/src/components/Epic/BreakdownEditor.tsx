@@ -23,6 +23,16 @@ export interface BreakdownEditorProps {
 const textareaClass =
   'w-full min-h-[120px] p-2 bg-background border border-input rounded-md text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-ring';
 
+/** Mirrors the server default (`task/<id>-<title-slug>`); the id is only known once created. */
+function defaultBranchHint(title: string): string {
+  const slug = (title || 'task')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 30);
+  return `task/<id>-${slug}`;
+}
+
 function newKey(existing: BreakdownSubtask[]): string {
   const keys = new Set(existing.map((s) => s.key));
   let n = existing.length + 1;
@@ -69,7 +79,16 @@ export default function BreakdownEditor({ epicId, breakdown, projects, onSaved, 
     setIsSaving(true);
     setError(null);
     try {
-      const response = await api.epics.saveBreakdown(epicId, draft);
+      // Empty overrides mean "use the default" — don't send them at all.
+      const payload: Breakdown = {
+        ...draft,
+        subtasks: draft.subtasks.map(({ branch, prTitle, ...rest }) => ({
+          ...rest,
+          ...(branch?.trim() ? { branch: branch.trim() } : {}),
+          ...(prTitle?.trim() ? { prTitle: prTitle.trim() } : {}),
+        })),
+      };
+      const response = await api.epics.saveBreakdown(epicId, payload);
       if (!response.ok) {
         const err = (await response.json().catch(() => ({}))) as { error?: string; issues?: Array<{ path: unknown[]; message: string }> };
         const issues = err.issues?.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
@@ -139,6 +158,21 @@ export default function BreakdownEditor({ epicId, breakdown, projects, onSaved, 
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input
+                  value={s.branch ?? ''}
+                  placeholder={defaultBranchHint(s.title)}
+                  onChange={(e) => updateSubtask(s.key, { branch: e.target.value })}
+                  aria-label={`Branch of sub-task ${index + 1}`}
+                  className="font-mono text-xs"
+                />
+                <Input
+                  value={s.prTitle ?? ''}
+                  placeholder="PR title (chosen by the PR agent if empty)"
+                  onChange={(e) => updateSubtask(s.key, { prTitle: e.target.value })}
+                  aria-label={`PR title of sub-task ${index + 1}`}
+                />
               </div>
               <textarea
                 className={textareaClass}

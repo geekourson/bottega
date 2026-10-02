@@ -53,6 +53,7 @@ import {
   mergeAndCleanup,
   hasUncommittedChanges,
   commitAllChanges,
+  formatCommitMessage,
   pushChanges,
   resolveTaskWorkingDir,
   renameWorktreeBranch,
@@ -628,10 +629,10 @@ describe('Worktree Service', () => {
 
   describe('commitAllChanges (no shell escaping needed)', () => {
     it('passes the commit message verbatim as an argv element', async () => {
-      let captured: string | undefined;
+      let captured: readonly string[] | undefined;
       withDispatch(async (cmd, args) => {
         if (cmd === 'git' && args[0] === 'commit') {
-          captured = args[2]; // ['commit', '-m', <message>]
+          captured = args; // ['commit', '-m', <subject>, '-m', <body>]
           return { stdout: '', stderr: '' };
         }
         return { stdout: '', stderr: '' };
@@ -641,7 +642,26 @@ describe('Worktree Service', () => {
       const result = await commitAllChanges('/repo', 10, adversarial);
 
       expect(result.success).toBe(true);
-      expect(captured).toBe(adversarial);
+      expect(captured).toEqual(['commit', '-m', '"quoted" $(rm -rf ~) `evil`', '-m', 'body']);
+    });
+  });
+
+  describe('formatCommitMessage (cbea.ms rules)', () => {
+    it('capitalizes the subject and drops the trailing period', () => {
+      expect(formatCommitMessage('add bulk endpoint.')).toEqual({ subject: 'Add bulk endpoint', body: null });
+    });
+
+    it('shortens a long subject at a word boundary and keeps it whole in the body', () => {
+      const long = 'Add a bulk update endpoint for interventions in the back office';
+      const { subject, body } = formatCommitMessage(long);
+      expect(subject.length).toBeLessThanOrEqual(50);
+      expect(subject).toBe('Add a bulk update endpoint for interventions in');
+      expect(body).toBe('Add a bulk update endpoint for interventions in the back office');
+    });
+
+    it('wraps the body at 72 characters', () => {
+      const { body } = formatCommitMessage(`Fix export\n\n${'word '.repeat(40)}`);
+      expect(body!.split('\n').every((line) => line.length <= 72)).toBe(true);
     });
   });
 

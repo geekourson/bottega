@@ -150,6 +150,17 @@ export function validateBreakdownSemantics(
     }
   }
 
+  const branchesByProject = new Map<number, Set<string>>();
+  for (const subtask of breakdown.subtasks) {
+    if (!subtask.branch) continue;
+    const branches = branchesByProject.get(subtask.projectId) ?? new Set<string>();
+    if (branches.has(subtask.branch)) {
+      errors.push(`sub-task "${subtask.key}": branch "${subtask.branch}" is used twice in the same repository`);
+    }
+    branches.add(subtask.branch);
+    branchesByProject.set(subtask.projectId, branches);
+  }
+
   for (const subtask of breakdown.subtasks) {
     for (const dep of subtask.dependsOn) {
       if (dep === subtask.key) errors.push(`sub-task "${subtask.key}" depends on itself`);
@@ -391,6 +402,7 @@ export async function approveBreakdown(
           row.id,
           subtask.title,
           project.subproject_path,
+          subtask.branch || null,
         );
         if (!result.success) {
           throw new Error(`could not create the worktree for "${subtask.title}" in ${project.name}: ${result.error}`);
@@ -399,7 +411,7 @@ export async function approveBreakdown(
         entry.branch = result.branch ?? null;
       }
 
-      tasksDb.update(row.id, { parent_task_id: epicId });
+      tasksDb.update(row.id, { parent_task_id: epicId, pr_title: subtask.prTitle || null });
 
       const dependencies = subtask.dependsOn.map((key) => {
         const dep = createdByKey.get(key)!;

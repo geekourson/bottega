@@ -21,6 +21,17 @@ export const BreakdownSubtaskSchema = z.object({
   title: z.string().trim().min(1, 'title is required').max(200),
   description: z.string().trim().min(1, 'description is required'),
   dependsOn: z.array(z.string()).default([]),
+  // Optional overrides; empty = defaults (branch `task/<id>-<title-slug>`,
+  // PR title chosen by the PR agent). Same character rules as
+  // server/services/validators.ts `assertValidBranchName`.
+  branch: z
+    .string()
+    .trim()
+    .max(200)
+    .regex(/^([A-Za-z0-9][A-Za-z0-9_./-]*)?$/, 'branch may only contain letters, digits, ".", "_", "/" and "-", and must start with a letter or digit')
+    .refine((b) => !b.includes('..') && !b.endsWith('/') && !b.endsWith('.lock'), 'branch is not a valid git branch name')
+    .optional(),
+  prTitle: z.string().trim().max(256).optional(),
 });
 export type BreakdownSubtask = z.infer<typeof BreakdownSubtaskSchema>;
 

@@ -261,9 +261,11 @@ export async function createWorktree(
   taskId: number,
   title: string | null | undefined,
   subprojectPath: string | null = null,
+  // Explicit branch name (e.g. chosen in an epic breakdown); defaults to
+  // `task/<id>-<title-slug>`.
+  branchName: string | null = null,
 ): Promise<CreateWorktreeResult> {
-  const sanitizedTitle = sanitizeTitle(title);
-  const branch = `task/${taskId}-${sanitizedTitle}`;
+  const branch = branchName?.trim() || `task/${taskId}-${sanitizeTitle(title)}`;
   const worktreesDir = getWorktreesDir(repoPath);
   const worktreePath = getWorktreePath(repoPath, taskId);
 
@@ -840,6 +842,50 @@ export async function hasUncommittedChanges(
 /**
  * Commit all changes in the worktree with a given message
  */
+function wrapAt(text: string, width: number): string {
+  return text
+    .split('\n')
+    .map((line) => {
+      const out: string[] = [];
+      let current = '';
+      for (const word of line.split(/\s+/).filter(Boolean)) {
+        if (current && current.length + 1 + word.length > width) {
+          out.push(current);
+          current = word;
+        } else {
+          current = current ? `${current} ${word}` : word;
+        }
+      }
+      out.push(current);
+      return out.join('\n');
+    })
+    .join('\n');
+}
+
+/**
+ * Apply the mechanical rules of https://cbea.ms/git-commit/ to a message the
+ * server commits on the user's behalf (e.g. a task title from the "Create PR"
+ * button): capitalized subject, no trailing period, at most 50 characters
+ * (a longer first line is shortened at a word boundary and kept whole in the
+ * body), body wrapped at 72. The imperative mood is up to the caller.
+ */
+export function formatCommitMessage(message: string): { subject: string; body: string | null } {
+  const [firstLine = '', ...rest] = message.trim().split('\n');
+  let subject = firstLine.trim().replace(/\.+$/, '');
+  subject = subject.charAt(0).toUpperCase() + subject.slice(1);
+  const bodyParts: string[] = [];
+
+  if (subject.length > 50) {
+    bodyParts.push(subject);
+    const cut = subject.slice(0, 51).lastIndexOf(' ');
+    subject = (cut > 20 ? subject.slice(0, cut) : subject.slice(0, 50)).replace(/[\s.,;:-]+$/, '');
+  }
+  const restText = rest.join('\n').trim();
+  if (restText) bodyParts.push(restText);
+
+  return { subject: subject || 'Update', body: bodyParts.length ? wrapAt(bodyParts.join('\n\n'), 72) : null };
+}
+
 export async function commitAllChanges(
   repoPath: string,
   taskId: number,
@@ -852,7 +898,8 @@ export async function commitAllChanges(
 
     // The commit message passes through argv — no quoting, no escaping. Even
     // `$(rm -rf ~)` would land as a literal commit message.
-    await runCommand('git', ['commit', '-m', message], { cwd: worktreePath });
+    const { subject, body } = formatCommitMessage(message);
+    await runCommand('git', ['commit', '-m', subject, ...(body ? ['-m', body] : [])], { cwd: worktreePath });
 
     return { success: true };
   } catch (error) {
@@ -891,7 +938,8 @@ export async function pushChanges(
 
     if (status.trim().length > 0) {
       await runCommand('git', ['add', '-A'], { cwd: worktreePath });
-      await runCommand('git', ['commit', '-m', commitMessage], { cwd: worktreePath });
+      const { subject, body } = formatCommitMessage(commitMessage);
+      await runCommand('git', ['commit', '-m', subject, ...(body ? ['-m', body] : [])], { cwd: worktreePath });
     }
 
     const branch = await getBranchName(worktreePath);

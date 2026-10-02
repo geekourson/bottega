@@ -16,6 +16,33 @@ import { fileURLToPath } from 'node:url';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../scripts');
 
+/**
+ * Pre-rendered {{commitMessageRules}} — the seven rules of a great git commit
+ * message (https://cbea.ms/git-commit/), injected into every prompt whose
+ * agent commits (pr, yolo, pr-feedback).
+ */
+export const COMMIT_MESSAGE_RULES = `## Commit messages
+
+Every commit you make follows the seven rules of a great Git commit message (https://cbea.ms/git-commit/):
+
+1. Separate the subject from the body with a blank line
+2. Limit the subject line to 50 characters
+3. Capitalize the subject line
+4. Do not end the subject line with a period
+5. Use the imperative mood in the subject line ("Add", "Fix", "Remove" — it completes "If applied, this commit will …")
+6. Wrap the body at 72 characters
+7. Use the body to explain what and why, not how
+
+Commit with one \`-m\` for the subject and one for the body (git puts the blank line between them):
+
+\`\`\`bash
+git add -A && git commit -m "Add bulk update endpoint for interventions" -m "Back-office users need to edit many interventions at once. The
+endpoint applies every change in one transaction so a partial failure
+leaves no intervention half-updated."
+\`\`\`
+
+A body is optional for a trivial change, but the subject rules always apply.`;
+
 interface FileContext {
   path?: string;
   line?: number | null;
@@ -59,7 +86,7 @@ A PR already exists at ${prUrl}. Skip to step 2.`;
   return `### 1. Create PR
 Create a PR for this task:
 1. Check for uncommitted changes: \`git status\`
-2. If changes exist, commit them with a concise message describing the task: \`git add -A && git commit -m "Implement <short task title>"\`
+2. If changes exist, commit them following the commit message rules (imperative subject of 50 characters max describing the task, body explaining what and why): \`git add -A && git commit -m "<subject>" -m "<body>"\`
 3. Verify there are commits ahead of the base branch: \`git log origin/main..HEAD --oneline\`
    - **If no commits ahead** (and no uncommitted changes were found in step 1): there is nothing to submit. Run the completion script and stop:
    \`\`\`bash
@@ -119,7 +146,7 @@ export async function generatePrAgentMessage(
     ? `- Existing PR: ${prUrl}`
     : '- No PR exists yet - you need to create one';
   const prCreateOrVerifyBlock = buildPrCreateOrVerifyBlock(taskId, prUrl, SCRIPTS_DIR, prTitle);
-  return renderPrompt('pr', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock, scriptsPath: SCRIPTS_DIR }, projectId);
+  return renderPrompt('pr', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock, commitMessageRules: COMMIT_MESSAGE_RULES, scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generateYoloMessage(
@@ -133,7 +160,7 @@ export async function generateYoloMessage(
     ? `- Existing PR: ${prUrl}`
     : '- No PR exists yet - you will create one at the end';
   const prCreateOrVerifyBlock = buildPrCreateOrVerifyBlock(taskId, prUrl, SCRIPTS_DIR, prTitle);
-  return renderPrompt('yolo', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock, scriptsPath: SCRIPTS_DIR }, projectId);
+  return renderPrompt('yolo', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock, commitMessageRules: COMMIT_MESSAGE_RULES, scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generatePrAgentCommentMessage(
@@ -182,7 +209,7 @@ ${fileContext.diffHunk}
 ${quotedComment}
 ${fileLocationSection}`;
 
-  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection, scriptsPath: SCRIPTS_DIR }, projectId);
+  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection, commitMessageRules: COMMIT_MESSAGE_RULES, scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generatePrAgentReviewMessage(
@@ -248,7 +275,7 @@ ${commentEntries}
 
   const feedbackSection = `## User Feedback${reviewBodySection}${inlineCommentsSection}`;
 
-  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection, scriptsPath: SCRIPTS_DIR }, projectId);
+  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection, commitMessageRules: COMMIT_MESSAGE_RULES, scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generateUxDesignMessage(

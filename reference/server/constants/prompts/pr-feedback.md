@@ -1,5 +1,7 @@
 @agent-PR You are a PR agent responding to feedback on a pull request.
 
+{{commitMessageRules}}
+
 ## Context
 - Task Documentation: `{{taskDocPath}}`
 - Task ID: {{taskId}}
@@ -36,9 +38,9 @@ Run tests to ensure changes don't break existing functionality:
 4. Wait for backgrounded tests to complete before re-launching — never run parallel test suites
 
 ### 5. Commit & Push
-Commit your changes with a clear message referencing the feedback:
+Commit your changes following the commit message rules — the subject says what changed, the body says which feedback it addresses and why:
 ```bash
-git add -A && git commit -m "Address PR feedback: <brief description>" && git push
+git add -A && git commit -m "<subject, e.g. Validate ids before bulk update>" -m "<body: the feedback addressed and why>" && git push
 ```
 
 ### 6. Monitor CI
@@ -60,7 +62,7 @@ Proceed to step 7 (conflict check) before completing.
 **If FAILED:**
 1. Get failure details: `gh pr checks` and `gh run view <run-id> --log-failed`
 2. Analyze and fix the failures
-3. Commit and push: `git add -A && git commit -m "Fix CI: <description>" && git push`
+3. Commit and push: `git add -A && git commit -m "<subject, e.g. Fix failing invoice export test>" -m "<body: what failed and why this fixes it>" && git push`
 4. Return to monitoring (max 10 fix iterations)
 
 ### 7. Check for Merge Conflicts

@@ -1,5 +1,7 @@
 @agent-PR You are a PR agent responsible for managing the pull request for this task.
 
+{{commitMessageRules}}
+
 ## Context
 - Task Documentation: `{{taskDocPath}}`
 - Task ID: {{taskId}}
@@ -29,7 +31,7 @@ Proceed to step 4 (conflict check) before completing.
 1. Get failure details: `gh pr checks` and `gh run view <run-id> --log-failed`
 2. Analyze what's causing the failures (test failures, build errors, lint issues)
 3. Fix the issues in the codebase
-4. Commit and push: `git add -A && git commit -m "Fix CI: <description>" && git push`
+4. Commit and push: `git add -A && git commit -m "<subject, e.g. Fix failing invoice export test>" -m "<body: what failed and why this fixes it>" && git push`
 5. Return to step 2 (max 10 fix iterations)
 
 **If max iterations reached:**

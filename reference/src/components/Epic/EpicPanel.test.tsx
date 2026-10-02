@@ -201,6 +201,25 @@ describe('EpicPanel', () => {
     expect(screen.queryByTestId('breakdown-editor')).not.toBeInTheDocument();
   });
 
+  it('sets a branch and PR title per sub-task, and omits empty ones', async () => {
+    vi.mocked(api.epics.get).mockResolvedValue(ok(proposed));
+    vi.mocked(api.epics.saveBreakdown).mockImplementation(async (_id, breakdown) => ok({ ...proposed, breakdown }));
+    renderPanel();
+
+    fireEvent.click(await screen.findByTestId('edit-breakdown'));
+    expect(screen.getByLabelText('Branch of sub-task 1')).toHaveAttribute('placeholder', 'task/<id>-pdf-endpoint');
+    fireEvent.change(screen.getByLabelText('Branch of sub-task 1'), { target: { value: 'feature/invoice-pdf' } });
+    fireEvent.change(screen.getByLabelText('PR title of sub-task 1'), { target: { value: 'Invoice PDF endpoint' } });
+    fireEvent.click(screen.getByTestId('save-breakdown'));
+
+    await waitFor(() => expect(api.epics.saveBreakdown).toHaveBeenCalled());
+    const saved = vi.mocked(api.epics.saveBreakdown).mock.calls[0]![1];
+    expect(saved.subtasks[0]).toMatchObject({ branch: 'feature/invoice-pdf', prTitle: 'Invoice PDF endpoint' });
+    expect(saved.subtasks[1]).not.toHaveProperty('branch');
+    expect(saved.subtasks[1]).not.toHaveProperty('prTitle');
+    expect(await screen.findByText('feature/invoice-pdf')).toBeInTheDocument();
+  });
+
   it('shows the server validation error when saving fails', async () => {
     vi.mocked(api.epics.get).mockResolvedValue(ok(proposed));
     vi.mocked(api.epics.saveBreakdown).mockResolvedValue({

@@ -89,6 +89,7 @@ Write `{{breakdownPath}}` — strict JSON, no comments, no trailing commas:
 - `key`: unique, lowercase letters, digits and dashes.
 - `projectId`: one of the child project IDs listed above.
 - `dependsOn`: keys of other sub-tasks of this breakdown. No cycles.
+- `branch`, `prTitle` (optional): only set them if the user asked for specific names. Leave them out otherwise — defaults are `task/<id>-<title-slug>` and a PR title chosen by the PR agent.
 - 1 to 30 sub-tasks.
 
 ### Step 7: Validate and complete
