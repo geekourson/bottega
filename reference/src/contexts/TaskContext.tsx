@@ -334,7 +334,13 @@ export function TaskContextProvider({ children }: { children: ReactNode }) {
       try {
         const response = await api.projects.delete(id);
         if (response.ok) {
-          setProjects((prev) => prev.filter((p) => p.id !== id));
+          // Deleting an umbrella detaches its children server-side
+          // (ON DELETE SET NULL) — mirror that here so they can be re-attached.
+          setProjects((prev) =>
+            prev
+              .filter((p) => p.id !== id)
+              .map((p) => (p.parent_project_id === id ? { ...p, parent_project_id: null } : p)),
+          );
           if (selectedProject?.id === id) {
             setSelectedProject(null);
             setTasks([]);

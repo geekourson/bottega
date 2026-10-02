@@ -216,7 +216,11 @@ export function setChildProjects(umbrellaId: number, userId: number, childIds: r
     if (!child) throw new EpicError(400, `Project ${childId} not found`);
     if (child.is_umbrella === 1) throw new EpicError(400, `"${child.name}" is an umbrella project and cannot be a child`);
     if (child.parent_project_id !== null && child.parent_project_id !== umbrellaId) {
-      throw new EpicError(409, `"${child.name}" already belongs to another umbrella project`);
+      // An orphan (parent gone or no longer an umbrella) is free to re-attach.
+      const currentParent = projectsDb.getByIdAdmin(child.parent_project_id);
+      if (currentParent?.is_umbrella === 1) {
+        throw new EpicError(409, `"${child.name}" already belongs to another umbrella project`);
+      }
     }
   }
 

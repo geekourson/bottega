@@ -218,6 +218,25 @@ describe('setChildProjects', () => {
     }
   });
 
+  it('re-attaches orphans whose umbrella was deleted', () => {
+    const { umbrellaId, apiId } = makeUmbrella();
+    expect(projectsDb.delete(umbrellaId, userId)).toBe(true);
+    expect(projectsDb.getByIdAdmin(apiId)!.parent_project_id).toBeNull();
+
+    const newUmbrella = makeProject('new-umbrella', true);
+    expect(setChildProjects(newUmbrella, userId, [apiId]).map((p) => p.id)).toEqual([apiId]);
+  });
+
+  it('re-attaches a child whose parent is no longer an umbrella', () => {
+    const { apiId } = makeUmbrella();
+    const plain = makeProject('plain-parent');
+    // Simulate a stale link to a non-umbrella project.
+    epicsDb.setChildProjects(plain, [apiId]);
+
+    const newUmbrella = makeProject('another-umbrella', true);
+    expect(setChildProjects(newUmbrella, userId, [apiId]).map((p) => p.id)).toEqual([apiId]);
+  });
+
   it('replaces the children list', () => {
     const { umbrellaId, apiId, frontId } = makeUmbrella();
     expect(setChildProjects(umbrellaId, userId, [apiId]).map((p) => p.id)).toEqual([apiId]);

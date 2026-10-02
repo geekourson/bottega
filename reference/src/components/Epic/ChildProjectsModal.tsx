@@ -19,18 +19,21 @@ export interface ChildProjectsModalProps {
 }
 
 export default function ChildProjectsModal({ isOpen, umbrella, projects, onClose, onSaved }: ChildProjectsModalProps) {
-  const candidates = useMemo(
-    () =>
-      projects
-        .filter(
-          (p) =>
-            p.id !== umbrella.id &&
-            p.is_umbrella !== 1 &&
-            (p.parent_project_id == null || p.parent_project_id === umbrella.id),
-        )
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [projects, umbrella.id],
-  );
+  const candidates = useMemo(() => {
+    // A parent that is no longer in the list (e.g. a deleted umbrella) does
+    // not hold its former children.
+    const umbrellaIds = new Set(projects.filter((p) => p.is_umbrella === 1).map((p) => p.id));
+    return projects
+      .filter(
+        (p) =>
+          p.id !== umbrella.id &&
+          p.is_umbrella !== 1 &&
+          (p.parent_project_id == null ||
+            p.parent_project_id === umbrella.id ||
+            !umbrellaIds.has(p.parent_project_id)),
+      )
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [projects, umbrella.id]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

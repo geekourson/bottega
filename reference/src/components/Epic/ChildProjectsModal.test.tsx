@@ -16,7 +16,7 @@ const projects = [
   umbrella,
   project(2, 'api', { parent_project_id: 1 }),
   project(3, 'front'),
-  project(4, 'elsewhere', { parent_project_id: 99 }),
+  project(4, 'elsewhere', { parent_project_id: 5 }),
   project(5, 'Other umbrella', { is_umbrella: 1 }),
 ];
 
@@ -32,6 +32,14 @@ describe('ChildProjectsModal', () => {
     expect(list).not.toHaveTextContent('elsewhere');
     expect(list).not.toHaveTextContent('Other umbrella');
     expect(screen.getAllByRole('checkbox').map((c) => (c as HTMLInputElement).checked)).toEqual([true, false]);
+  });
+
+  it('offers projects whose former umbrella was deleted', () => {
+    const orphan = project(6, 'orphan', { parent_project_id: 42 }); // umbrella 42 no longer listed
+    render(
+      <ChildProjectsModal isOpen umbrella={umbrella} projects={[...projects, orphan]} onClose={vi.fn()} onSaved={vi.fn()} />,
+    );
+    expect(screen.getByTestId('child-projects-list')).toHaveTextContent('orphan');
   });
 
   it('saves the full list of children', async () => {
