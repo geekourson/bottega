@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     ux_review_required INTEGER DEFAULT 0 NOT NULL,
     ux_design_approved INTEGER DEFAULT 0 NOT NULL,
     uses_worktree INTEGER DEFAULT 0 NOT NULL,
+    pr_title TEXT DEFAULT NULL,
     completed_at DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,

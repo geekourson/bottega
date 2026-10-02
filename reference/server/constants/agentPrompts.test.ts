@@ -95,6 +95,19 @@ describe('generatePrAgentMessage (shared body refactor regression)', () => {
     expect(msg).toContain('Keep this to a short paragraph');
     expect(msg).not.toContain('gh pr create --title "Task #1" --body "Implementation for task #1"');
   });
+
+  it('imposes the user-chosen PR title when one is set', async () => {
+    const msg = await generatePrAgentMessage('/repo/.bottega/tasks/task-1.md', 1, null, undefined, 'feat: "dark" mode');
+    expect(msg).toContain('exactly as written');
+    expect(msg).toContain('"feat: \\"dark\\" mode"');
+    expect(msg).not.toContain('--title "<short task title>"');
+  });
+
+  it('ignores the chosen title when the PR already exists', async () => {
+    const msg = await generatePrAgentMessage('/repo/.bottega/tasks/task-1.md', 1, 'https://github.com/a/b/pull/1', undefined, 'feat: x');
+    expect(msg).toContain('A PR already exists');
+    expect(msg).not.toContain('feat: x');
+  });
 });
 
 describe('generatePlanificationMessage', () => {

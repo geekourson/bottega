@@ -9,8 +9,14 @@ const {
   mockGetUserById,
   mockWorktreeExists,
   mockStartAgentRun,
-  mockGetAppSetting
+  mockGetAppSetting,
+  mockGetActiveWorktreeTasks,
+  mockGetBranchName,
+  mockRunCommand
 } = vi.hoisted(() => ({
+  mockGetActiveWorktreeTasks: vi.fn(),
+  mockGetBranchName: vi.fn(),
+  mockRunCommand: vi.fn(),
   mockGetById: vi.fn(),
   mockGetWithProject: vi.fn(),
   mockGetByTask: vi.fn(),
@@ -24,7 +30,8 @@ const {
 vi.mock('../database/db.js', () => ({
   tasksDb: {
     getById: mockGetById,
-    getWithProject: mockGetWithProject
+    getWithProject: mockGetWithProject,
+    getActiveWorktreeTasks: mockGetActiveWorktreeTasks
   },
   userDb: {
     getUserById: mockGetUserById
@@ -39,7 +46,13 @@ vi.mock('../database/db.js', () => ({
 
 // Mock worktree service
 vi.mock('./worktree.js', () => ({
-  worktreeExists: mockWorktreeExists
+  worktreeExists: mockWorktreeExists,
+  getBranchName: mockGetBranchName,
+  getWorktreePath: (repo: string, id: number) => `${repo}-worktrees/task-${id}`
+}));
+
+vi.mock('./shell.js', () => ({
+  runCommand: mockRunCommand
 }));
 
 // Mock agentRunner (dynamic import)
@@ -50,11 +63,50 @@ vi.mock('./agentRunner.js', () => ({
 import {
   validateGitHubWebhookSignature,
   parseTaskIdFromBranch,
+  findTaskIdByBranch,
   hasTriggerMention,
   getConfiguredTrigger,
   triggerPrAgentFromComment,
   triggerPrAgentFromReview
 } from './webhookService.js';
+
+describe('findTaskIdByBranch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetActiveWorktreeTasks.mockReturnValue([
+      { id: 5, repo_folder_path: '/a' },
+      { id: 9, repo_folder_path: '/b' },
+    ]);
+  });
+
+  it('finds the task whose worktree has the branch checked out, whatever its name', async () => {
+    mockGetBranchName.mockImplementation(async (p: string) =>
+      p === '/b-worktrees/task-9' ? 'feature/login' : 'task/5-x',
+    );
+    expect(await findTaskIdByBranch('feature/login', 'acme/app')).toBe(9);
+  });
+
+  it('disambiguates the same branch name across projects with the origin remote', async () => {
+    mockGetBranchName.mockResolvedValue('feature/login');
+    mockRunCommand.mockImplementation(async (_cmd: string, _args: string[], opts: { cwd: string }) => ({
+      stdout: opts.cwd === '/b' ? 'git@github.com:Acme/App.git\n' : 'https://github.com/other/repo.git\n',
+      stderr: '',
+    }));
+    expect(await findTaskIdByBranch('feature/login', 'acme/app')).toBe(9);
+  });
+
+  it('returns null when ambiguous and no repo matches', async () => {
+    mockGetBranchName.mockResolvedValue('feature/login');
+    mockRunCommand.mockResolvedValue({ stdout: 'https://github.com/x/y.git', stderr: '' });
+    expect(await findTaskIdByBranch('feature/login', 'acme/app')).toBeNull();
+  });
+
+  it('falls back to the legacy task/{id}- format when no worktree matches', async () => {
+    mockGetBranchName.mockResolvedValue(null);
+    expect(await findTaskIdByBranch('task/42-old', 'acme/app')).toBe(42);
+    expect(await findTaskIdByBranch('feature/unknown', 'acme/app')).toBeNull();
+  });
+});
 
 describe('Webhook Service', () => {
   beforeEach(() => {

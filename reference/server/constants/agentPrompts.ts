@@ -45,7 +45,12 @@ interface ReviewWebhookContext {
  * Pre-rendered {{prCreateOrVerifyBlock}} — the "create a new PR" vs "verify the
  * existing PR" opening step of the PR/CI procedure inlined into pr.md and yolo.md.
  */
-function buildPrCreateOrVerifyBlock(taskId: number, prUrl: string | null | undefined, scriptsPath: string): string {
+function buildPrCreateOrVerifyBlock(
+  taskId: number,
+  prUrl: string | null | undefined,
+  scriptsPath: string,
+  prTitle?: string | null,
+): string {
   if (prUrl) {
     return `### 1. Verify PR Exists
 A PR already exists at ${prUrl}. Skip to step 2.`;
@@ -60,8 +65,11 @@ Create a PR for this task:
    tsx ${scriptsPath}/complete-pr.ts ${taskId}
    \`\`\`
 4. Push to origin: \`git push -u origin $(git branch --show-current)\`
-5. Create PR with a short specific title and concise summary body. Replace the placeholders with the actual task title and implementation summary:
-   \`gh pr create --title "<short task title>" --body "Summary: <what the task does and how this implementation solves it. Keep this to a short paragraph. Task: #${taskId}>"\``;
+${prTitle
+    ? `5. Create PR with the title chosen by the user — use it **exactly as written**, do not rephrase it: ${JSON.stringify(prTitle)}. Write a concise summary body (replace the placeholder), quoting the title safely for the shell:
+   \`gh pr create --title <the exact title above> --body "Summary: <what the task does and how this implementation solves it. Keep this to a short paragraph. Task: #${taskId}>"\``
+    : `5. Create PR with a short specific title and concise summary body. Replace the placeholders with the actual task title and implementation summary:
+   \`gh pr create --title "<short task title>" --body "Summary: <what the task does and how this implementation solves it. Keep this to a short paragraph. Task: #${taskId}>"\``}`;
 }
 
 export async function generatePlanificationMessage(
@@ -104,11 +112,12 @@ export async function generatePrAgentMessage(
   taskId: number,
   prUrl: string | null | undefined,
   projectId?: number,
+  prTitle?: string | null,
 ): Promise<string> {
   const prContextLine = prUrl
     ? `- Existing PR: ${prUrl}`
     : '- No PR exists yet - you need to create one';
-  const prCreateOrVerifyBlock = buildPrCreateOrVerifyBlock(taskId, prUrl, SCRIPTS_DIR);
+  const prCreateOrVerifyBlock = buildPrCreateOrVerifyBlock(taskId, prUrl, SCRIPTS_DIR, prTitle);
   return renderPrompt('pr', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock, scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
@@ -117,11 +126,12 @@ export async function generateYoloMessage(
   taskId: number,
   prUrl: string | null | undefined,
   projectId?: number,
+  prTitle?: string | null,
 ): Promise<string> {
   const prContextLine = prUrl
     ? `- Existing PR: ${prUrl}`
     : '- No PR exists yet - you will create one at the end';
-  const prCreateOrVerifyBlock = buildPrCreateOrVerifyBlock(taskId, prUrl, SCRIPTS_DIR);
+  const prCreateOrVerifyBlock = buildPrCreateOrVerifyBlock(taskId, prUrl, SCRIPTS_DIR, prTitle);
   return renderPrompt('yolo', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock, scriptsPath: SCRIPTS_DIR }, projectId);
 }
 

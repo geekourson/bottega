@@ -18,6 +18,7 @@ import AgentSection from './AgentSection';
 import ReviewRecording from './ReviewRecording';
 import CIFixModal from './CIFixModal';
 import DiffViewer from './DiffViewer';
+import InlineRenameField from './InlineRenameField';
 import { cn } from '../lib/utils';
 import { api } from '../utils/api';
 import { cleanupWorktreeOnComplete } from '../utils/worktreeCleanup';
@@ -66,6 +67,7 @@ interface CIStatusDetails {
 interface PRStatus {
   exists?: boolean;
   url?: string;
+  title?: string;
   state?: string;
   mergeable?: string;
   ciStatus?: CIStatusDetails;
@@ -180,6 +182,12 @@ function TaskDetailView({
   const [isCreatingCIFixConversation, setIsCreatingCIFixConversation] = useState(false);
   const [showCIFixModal, setShowCIFixModal] = useState(false);
   const [worktreeError, setWorktreeError] = useState<string | null>(null);
+  // Title the PR will get when it is created (manual button or PR agent)
+  const [plannedPrTitle, setPlannedPrTitle] = useState<string | null>(task?.pr_title ?? null);
+
+  useEffect(() => {
+    setPlannedPrTitle(task?.pr_title ?? null);
+  }, [task?.id, task?.pr_title]);
 
   // Web server state
   const [webServerStatus, setWebServerStatus] = useState<WebServerStatus | null>(null);
@@ -434,12 +442,57 @@ function TaskDetailView({
     }
   };
 
+  const handleRenameBranch = async (name: string): Promise<string | null> => {
+    if (!task?.id) return null;
+    try {
+      const response = await api.tasks.renameWorktreeBranch(task.id, name);
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        return (data as { error?: string }).error || 'Failed to rename branch';
+      }
+      setWorktreeStatus((prev) => (prev ? { ...prev, branch: data.branch } : prev));
+      return null;
+    } catch (err) {
+      return (err as Error).message;
+    }
+  };
+
+  const handleRenamePR = async (title: string): Promise<string | null> => {
+    if (!task?.id) return null;
+    try {
+      const response = await api.tasks.renamePR(task.id, title);
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        return (data as { error?: string }).error || 'Failed to rename PR';
+      }
+      setPrStatus((prev) => (prev ? { ...prev, title } : prev));
+      return null;
+    } catch (err) {
+      return (err as Error).message;
+    }
+  };
+
+  const handleSavePlannedPrTitle = async (title: string): Promise<string | null> => {
+    if (!task?.id) return null;
+    try {
+      const response = await api.tasks.update(task.id, { pr_title: title });
+      if (!response.ok) {
+        const data = (await response.json()) as { error?: string };
+        return data.error || 'Failed to save PR title';
+      }
+      setPlannedPrTitle(title);
+      return null;
+    } catch (err) {
+      return (err as Error).message;
+    }
+  };
+
   const handleCreatePR = async () => {
     if (!task?.id) return;
     setIsCreatingPR(true);
     setWorktreeError(null);
     try {
-      const title = task.title || `Task ${task.id}`;
+      const title = plannedPrTitle || task.title || `Task ${task.id}`;
       const body = `## Task\n\n${task.title || 'No title'}\n\n## Description\n\nImplemented as part of task #${task.id}`;
       const response = await api.tasks.createPR(task.id, title, body);
       if (response.ok) {
@@ -971,9 +1024,18 @@ Please:
                 {task?.status !== 'pending' && (
                   <GitBranch className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                 )}
-                <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded truncate">
-                  {worktreeStatus.branch}
-                </span>
+                {worktreeStatus.branch ? (
+                  <InlineRenameField
+                    value={worktreeStatus.branch}
+                    onSave={handleRenameBranch}
+                    editTitle="Renommer la branche du worktree"
+                    inputClassName="font-mono w-48"
+                  />
+                ) : (
+                  <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded truncate">
+                    {worktreeStatus.branch}
+                  </span>
+                )}
               </div>
             )}
 
@@ -1235,6 +1297,41 @@ Please:
               </Button>
             </div>}
           </div>
+
+          {/* Planned PR title — used when the PR gets created */}
+          {worktreeStatus && !prStatus?.exists && (
+            <div className="mt-2 flex items-center gap-2 min-w-0 text-sm">
+              <span className="text-muted-foreground flex-shrink-0">Titre du PR :</span>
+              <InlineRenameField
+                value={plannedPrTitle ?? ''}
+                display={
+                  plannedPrTitle ? (
+                    <span className="truncate">{plannedPrTitle}</span>
+                  ) : (
+                    <span className="truncate italic text-muted-foreground">automatique (choisi par l'agent PR)</span>
+                  )
+                }
+                onSave={handleSavePlannedPrTitle}
+                allowEmpty
+                editTitle="Choisir le titre du PR avant sa création"
+                className="flex-1"
+              />
+            </div>
+          )}
+
+          {/* PR title */}
+          {worktreeStatus && prStatus?.exists && prStatus.title && (
+            <div className="mt-2 flex items-center gap-2 min-w-0 text-sm">
+              <span className="text-muted-foreground flex-shrink-0">PR :</span>
+              <InlineRenameField
+                value={prStatus.title}
+                display={<span className="truncate">{prStatus.title}</span>}
+                onSave={handleRenamePR}
+                editTitle="Renommer la pull request"
+                className="flex-1"
+              />
+            </div>
+          )}
 
           {/* Error message */}
           {worktreeError && (

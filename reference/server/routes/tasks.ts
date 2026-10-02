@@ -31,6 +31,8 @@ import {
   hasUncommittedChanges,
   pushChanges,
   getWorktreeDiff,
+  renameWorktreeBranch,
+  updatePullRequestTitle,
 } from '../services/worktree.js';
 import { createOrUpdatePR } from '../services/prService.js';
 import { switchWorktree } from '../services/webServerManager.js';
@@ -56,6 +58,8 @@ import {
   type ListTasksQuery,
   PushChangesBodySchema,
   type PushChangesBody,
+  RenameWorktreeBranchBodySchema,
+  type RenameWorktreeBranchBody,
   ResumeTaskBodySchema,
   type ResumeTaskBody,
   TaskAttachmentParamsSchema,
@@ -64,6 +68,8 @@ import {
   type UpdateTaskBody,
   UpdateTaskDocBodySchema,
   type UpdateTaskDocBody,
+  UpdatePullRequestBodySchema,
+  type UpdatePullRequestBody,
   WorkflowCompleteBodySchema,
   type WorkflowCompleteBody,
 } from '../../shared/schemas/tasks.js';
@@ -245,6 +251,9 @@ router.put(
       }
       if (body.ux_review_required !== undefined) {
         updates.ux_review_required = body.ux_review_required ? 1 : 0;
+      }
+      if (body.pr_title !== undefined) {
+        updates.pr_title = body.pr_title?.trim() || null;
       }
 
       const task = tasksDb.update(taskId, updates);
@@ -995,6 +1004,42 @@ router.post(
   },
 );
 
+router.patch(
+  '/tasks/:id/worktree/branch',
+  validateParams(IdParamsSchema),
+  validateBody(RenameWorktreeBranchBodySchema),
+  async (req: Request, res: Response<unknown>) => {
+    try {
+      const userId = req.user!.id;
+      const { id: taskId } = req.validated!.params as IdParams;
+
+      const taskWithProject = tasksDb.getWithProject(taskId);
+      if (!taskWithProject) {
+        return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
+      }
+      if (!hasProjectAccess(taskWithProject.project_id, userId)) {
+        return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
+      }
+      if (!(await worktreeExists(taskWithProject.repo_folder_path, taskId))) {
+        return res.status(404).json({ error: 'Worktree not found' } satisfies ApiError);
+      }
+
+      const { name } = req.validated!.body as RenameWorktreeBranchBody;
+      const result = await renameWorktreeBranch(
+        taskWithProject.repo_folder_path,
+        taskId,
+        name,
+        userId,
+        taskWithProject.project_id,
+      );
+      res.json(result);
+    } catch (error) {
+      console.error('Error renaming worktree branch:', error);
+      res.status(500).json({ error: 'Failed to rename worktree branch' } satisfies ApiError);
+    }
+  },
+);
+
 router.post(
   '/tasks/:id/sync',
   validateParams(IdParamsSchema),
@@ -1094,6 +1139,39 @@ router.get(
       res
         .status(500)
         .json({ error: 'Failed to get pull request status' } satisfies ApiError);
+    }
+  },
+);
+
+router.patch(
+  '/tasks/:id/pull-request',
+  validateParams(IdParamsSchema),
+  validateBody(UpdatePullRequestBodySchema),
+  async (req: Request, res: Response<unknown>) => {
+    try {
+      const userId = req.user!.id;
+      const { id: taskId } = req.validated!.params as IdParams;
+
+      const taskWithProject = tasksDb.getWithProject(taskId);
+      if (!taskWithProject) {
+        return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
+      }
+      if (!hasProjectAccess(taskWithProject.project_id, userId)) {
+        return res.status(404).json({ error: 'Task not found' } satisfies ApiError);
+      }
+
+      const { title } = req.validated!.body as UpdatePullRequestBody;
+      const result = await updatePullRequestTitle(
+        taskWithProject.repo_folder_path,
+        taskId,
+        title,
+        userId,
+        taskWithProject.project_id,
+      );
+      res.json(result);
+    } catch (error) {
+      console.error('Error renaming pull request:', error);
+      res.status(500).json({ error: 'Failed to rename pull request' } satisfies ApiError);
     }
   },
 );

@@ -121,14 +121,14 @@ export async function startAgentRun(
       } else if (webhookCtx) {
         message = await generatePrAgentCommentMessage(taskDocPath, taskId, prUrl, webhookCtx as never, taskWithProject.project_id);
       } else {
-        message = await generatePrAgentMessage(taskDocPath, taskId, prUrl, taskWithProject.project_id);
+        message = await generatePrAgentMessage(taskDocPath, taskId, prUrl, taskWithProject.project_id, taskWithProject.pr_title);
       }
       break;
     }
     case 'yolo': {
       const yoloPrStatus = await getPullRequestStatus(taskWithProject.repo_folder_path, taskId);
       const yoloPrUrl = yoloPrStatus.exists ? yoloPrStatus.url ?? null : null;
-      message = await generateYoloMessage(taskDocPath, taskId, yoloPrUrl, taskWithProject.project_id);
+      message = await generateYoloMessage(taskDocPath, taskId, yoloPrUrl, taskWithProject.project_id, taskWithProject.pr_title);
       break;
     }
     case 'po':

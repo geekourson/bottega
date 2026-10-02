@@ -55,6 +55,8 @@ import {
   commitAllChanges,
   pushChanges,
   resolveTaskWorkingDir,
+  renameWorktreeBranch,
+  updatePullRequestTitle,
 } from './worktree.js';
 
 // Helper: configure mockRunCommand to dispatch on (cmd, args) so each test
@@ -658,6 +660,134 @@ describe('Worktree Service', () => {
         (c) => c[0] === 'git' && (c[1] as string[])[0] === 'push',
       );
       expect(pushCall![1]).toEqual(['push', 'origin', 'task/1-test']);
+    });
+  });
+
+  describe('renameWorktreeBranch', () => {
+    const findCall = (cmd: string, first: string, second?: string) =>
+      mockRunCommand.mock.calls.find(
+        (c) =>
+          c[0] === cmd &&
+          (c[1] as string[])[0] === first &&
+          (second === undefined || (c[1] as string[])[1] === second),
+      );
+
+    it('renames a local-only branch to any valid name', async () => {
+      withDispatch(async (cmd, args) => {
+        if (args.includes('--show-current')) return { stdout: 'task/7-old-name\n', stderr: '' };
+        if (args[0] === 'rev-parse') throw new Error('not found');
+        if (args[0] === 'ls-remote') return { stdout: '', stderr: '' };
+        return { stdout: '', stderr: '' };
+      });
+
+      const result = await renameWorktreeBranch('/repo', 7, ' feature/login-page ');
+
+      expect(result).toEqual({ success: true, branch: 'feature/login-page' });
+      expect(findCall('git', 'branch', '-m')![1]).toEqual([
+        'branch',
+        '-m',
+        'task/7-old-name',
+        'feature/login-page',
+      ]);
+      expect(findCall('gh', 'api')).toBeUndefined();
+    });
+
+    it('renames the remote branch on GitHub first when it was pushed', async () => {
+      withDispatch(async (cmd, args) => {
+        if (args.includes('--show-current')) return { stdout: 'task/7-old-name\n', stderr: '' };
+        if (args[0] === 'rev-parse') throw new Error('not found');
+        if (args[0] === 'ls-remote') return { stdout: 'abc\trefs/heads/task/7-old-name\n', stderr: '' };
+        if (cmd === 'gh' && args[0] === 'repo') return { stdout: 'acme/app\n', stderr: '' };
+        return { stdout: '', stderr: '' };
+      });
+
+      const result = await renameWorktreeBranch('/repo', 7, 'fix/better');
+
+      expect(result).toEqual({ success: true, branch: 'fix/better' });
+      expect(findCall('gh', 'api')![1]).toEqual([
+        'api',
+        '-X',
+        'POST',
+        'repos/acme/app/branches/task%2F7-old-name/rename',
+        '-f',
+        'new_name=fix/better',
+      ]);
+      expect(findCall('git', 'branch', '--set-upstream-to=origin/fix/better')).toBeDefined();
+      const ghIndex = mockRunCommand.mock.calls.findIndex((c) => c[0] === 'gh' && (c[1] as string[])[0] === 'api');
+      const localIndex = mockRunCommand.mock.calls.findIndex(
+        (c) => c[0] === 'git' && (c[1] as string[])[0] === 'branch' && (c[1] as string[])[1] === '-m',
+      );
+      expect(ghIndex).toBeLessThan(localIndex);
+    });
+
+    it('does not touch the local branch when the GitHub rename fails', async () => {
+      withDispatch(async (cmd, args) => {
+        if (args.includes('--show-current')) return { stdout: 'task/7-old-name\n', stderr: '' };
+        if (args[0] === 'rev-parse') throw new Error('not found');
+        if (args[0] === 'ls-remote') return { stdout: 'abc\trefs/heads/task/7-old-name\n', stderr: '' };
+        if (cmd === 'gh' && args[0] === 'repo') return { stdout: 'acme/app\n', stderr: '' };
+        if (cmd === 'gh' && args[0] === 'api') throw new Error('HTTP 403');
+        return { stdout: '', stderr: '' };
+      });
+
+      const result = await renameWorktreeBranch('/repo', 7, 'better');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('HTTP 403');
+      expect(findCall('git', 'branch', '-m')).toBeUndefined();
+    });
+
+    it('refuses a name that already exists locally', async () => {
+      withDispatch(async (cmd, args) => {
+        if (args.includes('--show-current')) return { stdout: 'task/7-old-name\n', stderr: '' };
+        return { stdout: 'abc\n', stderr: '' };
+      });
+
+      const result = await renameWorktreeBranch('/repo', 7, 'taken');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('already exists');
+      expect(findCall('git', 'branch', '-m')).toBeUndefined();
+    });
+
+    it('rejects a name git does not accept as a branch', async () => {
+      withDispatch(async (cmd, args) => {
+        if (args.includes('--show-current')) return { stdout: 'task/7-old-name\n', stderr: '' };
+        if (args[0] === 'check-ref-format') throw new Error('not a valid branch name');
+        return { stdout: '', stderr: '' };
+      });
+
+      const result = await renameWorktreeBranch('/repo', 7, 'feature/bad.lock');
+
+      expect(result).toEqual({ success: false, error: 'Invalid branch name: feature/bad.lock' });
+      expect(findCall('git', 'branch', '-m')).toBeUndefined();
+    });
+  });
+
+  describe('updatePullRequestTitle', () => {
+    it('retitles the PR of the worktree branch via gh pr edit', async () => {
+      withDispatch(async (cmd, args) => {
+        if (args.includes('--show-current')) return { stdout: 'task/3-x\n', stderr: '' };
+        return { stdout: '', stderr: '' };
+      });
+
+      const result = await updatePullRequestTitle('/repo', 3, 'feat: $(nope) new title');
+
+      expect(result.success).toBe(true);
+      const editCall = mockRunCommand.mock.calls.find((c) => c[0] === 'gh');
+      expect(editCall![1]).toEqual(['pr', 'edit', 'task/3-x', '--title', 'feat: $(nope) new title']);
+    });
+
+    it('reports gh failures', async () => {
+      withDispatch(async (cmd, args) => {
+        if (args.includes('--show-current')) return { stdout: 'task/3-x\n', stderr: '' };
+        if (cmd === 'gh') throw new Error('no pull requests found');
+        return { stdout: '', stderr: '' };
+      });
+
+      const result = await updatePullRequestTitle('/repo', 3, 'title');
+
+      expect(result).toEqual({ success: false, error: 'no pull requests found' });
     });
   });
 

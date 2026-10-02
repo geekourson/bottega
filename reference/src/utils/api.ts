@@ -77,6 +77,10 @@ import type {
   MergeAndCleanupResponse,
   PushChangesRequest,
   PushChangesResponse,
+  RenameWorktreeBranchRequest,
+  RenameWorktreeBranchResponse,
+  UpdatePRRequest,
+  UpdatePRResponse,
   DiscardWorktreeResponse,
   GetDiffResponse,
   ResetTaskResponse,
@@ -655,6 +659,20 @@ export const api = {
     },
     getPR: (id: number): TypedFetch<GetPRResponse> =>
       authenticatedFetch<GetPRResponse>(`/api/tasks/${id}/pull-request`),
+    renamePR: (id: number, title: string): TypedFetch<UpdatePRResponse> => {
+      const body: UpdatePRRequest = { title };
+      return authenticatedFetch<UpdatePRResponse>(`/api/tasks/${id}/pull-request`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+    },
+    renameWorktreeBranch: (id: number, name: string): TypedFetch<RenameWorktreeBranchResponse> => {
+      const body: RenameWorktreeBranchRequest = { name };
+      return authenticatedFetch<RenameWorktreeBranchResponse>(`/api/tasks/${id}/worktree/branch`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+    },
     mergeAndCleanup: (id: number): TypedFetch<MergeAndCleanupResponse> =>
       authenticatedFetch<MergeAndCleanupResponse>(`/api/tasks/${id}/merge-cleanup`, {
         method: 'POST',

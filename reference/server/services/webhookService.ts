@@ -8,7 +8,8 @@
 
 import crypto from 'crypto';
 import { tasksDb, userDb, agentRunsDb, appSettingsDb } from '../database/db.js';
-import { worktreeExists } from './worktree.js';
+import { worktreeExists, getBranchName, getWorktreePath } from './worktree.js';
+import { runCommand } from './shell.js';
 import type {
   BroadcastFn,
   BroadcastToConversationSubscribersFn,
@@ -49,6 +50,50 @@ export function parseTaskIdFromBranch(branchName: string | null | undefined): nu
     return parseInt(match[1], 10);
   }
   return null;
+}
+
+function remoteMatchesRepo(remoteUrl: string, repoFullName: string): boolean {
+  const url = remoteUrl.trim().toLowerCase().replace(/\.git$/, '');
+  const full = repoFullName.toLowerCase();
+  return url.endsWith(`/${full}`) || url.endsWith(`:${full}`);
+}
+
+/**
+ * Find the task a PR branch belongs to. Branch names are free-form (users can
+ * rename them to their own convention), so the source of truth is git itself:
+ * the branch currently checked out in each active task's worktree. When the
+ * same branch name exists in several projects, the GitHub repo of the event
+ * disambiguates via each project's `origin` remote. Legacy `task/{id}-…`
+ * names still resolve when no worktree matches.
+ */
+export async function findTaskIdByBranch(
+  branchName: string,
+  repoFullName?: string,
+): Promise<number | null> {
+  const tasks = tasksDb.getActiveWorktreeTasks();
+  const branches = await Promise.all(
+    tasks.map((t) => getBranchName(getWorktreePath(t.repo_folder_path, t.id))),
+  );
+  const matches = tasks.filter((_, i) => branches[i] === branchName);
+
+  if (matches.length === 1) return matches[0]!.id;
+
+  if (matches.length > 1) {
+    if (!repoFullName) return null;
+    for (const t of matches) {
+      try {
+        const { stdout } = await runCommand('git', ['remote', 'get-url', 'origin'], {
+          cwd: t.repo_folder_path,
+        });
+        if (remoteMatchesRepo(stdout, repoFullName)) return t.id;
+      } catch {
+        /* no origin — cannot be this repo */
+      }
+    }
+    return null;
+  }
+
+  return parseTaskIdFromBranch(branchName);
 }
 
 /**

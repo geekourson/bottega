@@ -261,6 +261,11 @@ const runMigrations = (): void => {
       db.exec('ALTER TABLE tasks ADD COLUMN ux_design_approved INTEGER DEFAULT 0 NOT NULL');
     }
 
+    if (!taskColumnNames.includes('pr_title')) {
+      console.log('Running migration: Adding pr_title column to tasks');
+      db.exec('ALTER TABLE tasks ADD COLUMN pr_title TEXT DEFAULT NULL');
+    }
+
     if (!taskColumnNames.includes('uses_worktree')) {
       console.log('Running migration: Adding uses_worktree column to tasks');
       db.exec('ALTER TABLE tasks ADD COLUMN uses_worktree INTEGER DEFAULT 0 NOT NULL');
@@ -1216,6 +1221,7 @@ export interface TaskUpdates {
   yolo_mode?: 0 | 1 | boolean;
   ux_review_required?: 0 | 1 | boolean;
   uses_worktree?: 0 | 1;
+  pr_title?: string | null;
 }
 
 const tasksDb = {
@@ -1271,6 +1277,17 @@ const tasksDb = {
       .all(projectId) as TaskRow[];
   },
 
+  /** Non-completed tasks isolated in a worktree, with their project repo path. */
+  getActiveWorktreeTasks: (): { id: number; repo_folder_path: string }[] => {
+    return db
+      .prepare(
+        `SELECT t.id AS id, p.repo_folder_path AS repo_folder_path
+         FROM tasks t JOIN projects p ON t.project_id = p.id
+         WHERE t.status != 'completed' AND t.uses_worktree = 1`,
+      )
+      .all() as { id: number; repo_folder_path: string }[];
+  },
+
   getById: (id: number): TaskRow | undefined => {
     return db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRow | undefined;
   },
@@ -1302,6 +1319,7 @@ const tasksDb = {
       'yolo_mode',
       'ux_review_required',
       'uses_worktree',
+      'pr_title',
     ];
     const setClause: string[] = [];
     const values: unknown[] = [];

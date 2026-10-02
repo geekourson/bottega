@@ -52,6 +52,8 @@ export interface UpdateTaskRequest {
   workflow_complete?: boolean;
   yolo_mode?: boolean;
   ux_review_required?: boolean;
+  // Planned PR title; empty string / null clears it.
+  pr_title?: string | null;
 }
 
 export type UpdateTaskResponse = TaskRow;
@@ -161,6 +163,15 @@ export type SyncWorktreeResponse =
   | { success: true }
   | { success: false; error: string };
 
+// `PATCH /api/tasks/:id/worktree/branch` — `name` is the full new branch name.
+export interface RenameWorktreeBranchRequest {
+  name: string;
+}
+
+export type RenameWorktreeBranchResponse =
+  | { success: true; branch: string }
+  | { success: false; error: string };
+
 export interface PushChangesRequest {
   // Falls back to the task title (or `Task #<id>`) server-side.
   commitMessage?: string | undefined;
@@ -197,6 +208,15 @@ export type CreatePRResponse =
   | { success: true; url: string }
   | { success: false; error: string };
 
+// `PATCH /api/tasks/:id/pull-request` — retitles the existing PR.
+export interface UpdatePRRequest {
+  title: string;
+}
+
+export type UpdatePRResponse =
+  | { success: true }
+  | { success: false; error: string };
+
 export type CIStatus = 'none' | 'passed' | 'failed' | 'pending' | 'unknown';
 
 export interface CICheck {
@@ -218,6 +238,7 @@ export type GetPRResponse =
       success: true;
       exists: true;
       url: string;
+      title?: string;
       state: string;
       mergeable: string;
       ciStatus: CIStatusDetails;

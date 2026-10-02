@@ -61,6 +61,7 @@ export const UpdateTaskBodySchema = z.object({
   workflow_complete: z.union([z.boolean(), z.literal(0), z.literal(1)]).optional(),
   yolo_mode: z.boolean().optional(),
   ux_review_required: z.boolean().optional(),
+  pr_title: z.string().max(256).nullable().optional(),
 });
 export type UpdateTaskBody = z.infer<typeof UpdateTaskBodySchema>;
 
@@ -84,6 +85,16 @@ export const CreatePullRequestBodySchema = z.object({
   body: z.string().optional(),
 });
 export type CreatePullRequestBody = z.infer<typeof CreatePullRequestBodySchema>;
+
+export const UpdatePullRequestBodySchema = z.object({
+  title: z.string().trim().min(1, 'PR title is required').max(256),
+});
+export type UpdatePullRequestBody = z.infer<typeof UpdatePullRequestBodySchema>;
+
+export const RenameWorktreeBranchBodySchema = z.object({
+  name: z.string().trim().min(1, 'Branch name is required').max(200),
+});
+export type RenameWorktreeBranchBody = z.infer<typeof RenameWorktreeBranchBodySchema>;
 
 export const PushChangesBodySchema = z.object({
   commitMessage: z.string().optional(),

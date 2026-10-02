@@ -22,7 +22,7 @@ const {
 
 vi.mock('../services/webhookService.js', () => ({
   validateGitHubWebhookSignature: mockValidateSignature,
-  parseTaskIdFromBranch: mockParseTaskId,
+  findTaskIdByBranch: (...args: unknown[]) => Promise.resolve(mockParseTaskId(...args)),
   hasTriggerMention: mockHasTriggerMention,
   getConfiguredTrigger: mockGetConfiguredTrigger,
   triggerPrAgentFromComment: mockTriggerPrAgent,
@@ -200,7 +200,7 @@ describe('Webhooks Routes', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('ignored');
-      expect(response.body.reason).toBe('branch not in task format');
+      expect(response.body.reason).toBe('branch not linked to a task');
     });
 
     it('triggers PR agent for valid webhook and passes gh args as argv (no shell)', async () => {
@@ -455,7 +455,7 @@ describe('Webhooks Routes', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('ignored');
-      expect(response.body.reason).toBe('branch not in task format');
+      expect(response.body.reason).toBe('branch not linked to a task');
     });
 
     it('handles review with empty comments array', async () => {

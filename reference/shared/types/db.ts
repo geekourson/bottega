@@ -116,6 +116,9 @@ export interface TaskRow {
   // 1 when the project repo is a git repo, else 0) and respected by every agent
   // run / conversation thereafter — never re-inferred from the filesystem.
   uses_worktree: SqliteBoolean;
+  // Title chosen up front for the PR this task will open (manual button or PR
+  // agent). NULL lets the agent pick one from the task.
+  pr_title: string | null;
   completed_at: string | null;
   created_at: string;
   updated_at: string;

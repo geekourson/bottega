@@ -1,7 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import { runCommand } from './shell.js';
-import { assertValidBranchName } from './validators.js';
+import { assertValidBranchName, assertValidRepoFullName } from './validators.js';
 import { getGitHubToken } from './githubCredentials.js';
 
 /**
@@ -327,6 +327,114 @@ export async function removeWorktree(
   }
 }
 
+export interface RenameBranchResult {
+  success: boolean;
+  branch?: string;
+  error?: string;
+}
+
+/**
+ * Rename a task's worktree branch to any valid name (e.g. `feature/login`).
+ * Webhooks find the task from the branch actually checked out in its worktree
+ * (see findTaskIdByBranch), so no naming convention is required. The worktree
+ * directory itself stays `task-{id}` — every path lookup derives it from the
+ * task id.
+ *
+ * If the branch was already pushed, it is renamed on GitHub first (rename
+ * API), which carries any open PR over to the new name; the local branch is
+ * then renamed and re-pointed at the renamed remote branch.
+ */
+export async function renameWorktreeBranch(
+  repoPath: string,
+  taskId: number,
+  name: string,
+  userId?: number,
+  projectId?: number,
+): Promise<RenameBranchResult> {
+  const worktreePath = getWorktreePath(repoPath, taskId);
+  const ghToken = userId ? getGitHubToken(userId, projectId) : null;
+  const gitEnv = buildGitAuthEnv(ghToken);
+
+  try {
+    const oldBranch = await getBranchName(worktreePath);
+    if (!oldBranch) {
+      return { success: false, error: 'Could not determine worktree branch' };
+    }
+    assertValidBranchName(oldBranch);
+
+    const newBranch = name.trim();
+    try {
+      assertValidBranchName(newBranch);
+      await runCommand('git', ['check-ref-format', '--branch', newBranch], { cwd: worktreePath });
+    } catch {
+      return { success: false, error: `Invalid branch name: ${newBranch}` };
+    }
+    if (newBranch === oldBranch) {
+      return { success: true, branch: newBranch };
+    }
+
+    try {
+      await runCommand('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${newBranch}`], {
+        cwd: worktreePath,
+      });
+      return { success: false, error: `Branch ${newBranch} already exists` };
+    } catch {
+      /* new name is free */
+    }
+
+    let onRemote = false;
+    try {
+      const { stdout } = await runCommand('git', ['ls-remote', '--heads', 'origin', oldBranch], {
+        cwd: worktreePath,
+        env: gitEnv,
+      });
+      onRemote = stdout.trim().length > 0;
+    } catch {
+      /* no origin or unreachable — treat as local-only */
+    }
+
+    if (onRemote) {
+      const { stdout: repoFullName } = await runCommand(
+        'gh',
+        ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'],
+        { cwd: worktreePath, env: gitEnv },
+      );
+      await runCommand(
+        'gh',
+        [
+          'api',
+          '-X',
+          'POST',
+          `repos/${assertValidRepoFullName(repoFullName.trim())}/branches/${encodeURIComponent(oldBranch)}/rename`,
+          '-f',
+          `new_name=${newBranch}`,
+        ],
+        { cwd: worktreePath, env: gitEnv },
+      );
+    }
+
+    await runCommand('git', ['branch', '-m', oldBranch, newBranch], { cwd: worktreePath });
+
+    if (onRemote) {
+      await runCommand('git', ['fetch', 'origin', '--prune'], { cwd: worktreePath, env: gitEnv });
+      await runCommand('git', ['branch', `--set-upstream-to=origin/${newBranch}`, newBranch], {
+        cwd: worktreePath,
+      });
+    } else {
+      try {
+        await runCommand('git', ['branch', '--unset-upstream', newBranch], { cwd: worktreePath });
+      } catch {
+        /* had no upstream */
+      }
+    }
+
+    return { success: true, branch: newBranch };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
 export interface WorktreeStatusResult {
   success: boolean;
   broken?: boolean;
@@ -493,6 +601,7 @@ export interface PullRequestStatusResult {
   success: boolean;
   exists: boolean;
   url?: string;
+  title?: string;
   state?: string;
   mergeable?: string;
   ciStatus?: CIStatus;
@@ -513,16 +622,16 @@ export async function getPullRequestStatus(
   const ghToken = userId !== undefined ? getGitHubToken(userId, projectId) : null;
   const ghEnv = buildGitAuthEnv(ghToken);
 
-  let prData: { url: string; state: string; mergeable: string } | null = null;
+  let prData: { url: string; title: string; state: string; mergeable: string } | null = null;
 
   // Primary: gh pr view (detects PR from current branch, open only)
   try {
     const { stdout } = await runCommand(
       'gh',
-      ['pr', 'view', '--json', 'url,state,mergeable'],
+      ['pr', 'view', '--json', 'url,title,state,mergeable'],
       { cwd: worktreePath, env: ghEnv },
     );
-    prData = JSON.parse(stdout) as { url: string; state: string; mergeable: string };
+    prData = JSON.parse(stdout) as { url: string; title: string; state: string; mergeable: string };
     console.log(`[getPullRequestStatus] task ${taskId}: state=${prData.state} mergeable=${prData.mergeable}`);
   } catch (viewErr) {
     console.warn(`[getPullRequestStatus] gh pr view failed for task ${taskId}:`, viewErr);
@@ -535,10 +644,10 @@ export async function getPullRequestStatus(
       if (branch) {
         const { stdout } = await runCommand(
           'gh',
-          ['pr', 'list', '--head', branch, '--state', 'all', '--json', 'url,state,mergeable', '--limit', '1'],
+          ['pr', 'list', '--head', branch, '--state', 'all', '--json', 'url,title,state,mergeable', '--limit', '1'],
           { cwd: worktreePath, env: ghEnv },
         );
-        const list = JSON.parse(stdout) as { url: string; state: string; mergeable: string }[];
+        const list = JSON.parse(stdout) as { url: string; title: string; state: string; mergeable: string }[];
         if (list.length > 0) {
           prData = list[0] ?? null;
         }
@@ -587,10 +696,43 @@ export async function getPullRequestStatus(
     success: true,
     exists: true,
     url: prData.url,
+    title: prData.title,
     state: prData.state,
     mergeable: prData.mergeable,
     ciStatus,
   };
+}
+
+/**
+ * Rename (retitle) the pull request opened from a task's worktree branch
+ */
+export async function updatePullRequestTitle(
+  repoPath: string,
+  taskId: number,
+  title: string,
+  userId?: number,
+  projectId?: number,
+): Promise<RemoveWorktreeResult> {
+  const worktreePath = getWorktreePath(repoPath, taskId);
+  const ghToken = userId ? getGitHubToken(userId, projectId) : null;
+  const gitEnv = buildGitAuthEnv(ghToken);
+
+  try {
+    const branch = await getBranchName(worktreePath);
+    if (!branch) {
+      return { success: false, error: 'Could not determine worktree branch' };
+    }
+    assertValidBranchName(branch);
+
+    await runCommand('gh', ['pr', 'edit', branch, '--title', title], {
+      cwd: worktreePath,
+      env: gitEnv,
+    });
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
 }
 
 /**

@@ -8,7 +8,7 @@
 import express, { type Request, type Response } from 'express';
 import {
   validateGitHubWebhookSignature,
-  parseTaskIdFromBranch,
+  findTaskIdByBranch,
   hasTriggerMention,
   getConfiguredTrigger,
   triggerPrAgentFromComment,
@@ -180,12 +180,12 @@ router.post(
           .json({ status: 'ignored', reason: 'could not determine branch' });
       }
 
-      const taskId = parseTaskIdFromBranch(branchName);
+      const taskId = await findTaskIdByBranch(branchName, repoFullName);
       if (!taskId) {
-        console.log(`[Webhook] Branch ${branchName} does not match task pattern`);
+        console.log(`[Webhook] Branch ${branchName} is not linked to a task`);
         return res
           .status(200)
-          .json({ status: 'ignored', reason: 'branch not in task format' });
+          .json({ status: 'ignored', reason: 'branch not linked to a task' });
       }
 
       const comments = reviewComments.map((c) => ({
@@ -273,12 +273,12 @@ router.post(
         .json({ status: 'ignored', reason: 'could not determine branch' });
     }
 
-    const taskId = parseTaskIdFromBranch(branchName);
+    const taskId = await findTaskIdByBranch(branchName, repoFullName);
     if (!taskId) {
-      console.log(`[Webhook] Branch ${branchName} does not match task pattern`);
+      console.log(`[Webhook] Branch ${branchName} is not linked to a task`);
       return res
         .status(200)
-        .json({ status: 'ignored', reason: 'branch not in task format' });
+        .json({ status: 'ignored', reason: 'branch not linked to a task' });
     }
 
     const prUrl = issue?.html_url;
