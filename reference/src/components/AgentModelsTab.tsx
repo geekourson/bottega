@@ -29,6 +29,7 @@ const AGENT_LABELS: Record<AgentType, string> = {
   yolo: 'YOLO',
   po: 'PO Session',
   ux_design: 'UX Design',
+  breakdown: 'Epic Breakdown',
 };
 
 function AgentModelsTab() {

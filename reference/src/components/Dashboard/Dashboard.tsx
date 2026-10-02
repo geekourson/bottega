@@ -414,6 +414,13 @@ function Dashboard({
                   <ProjectCardGrid
                     key={project.id}
                     project={project}
+                    childProjects={projects.filter((p) => p.parent_project_id === project.id)}
+                    parentProject={
+                      project.parent_project_id != null
+                        ? projects.find((p) => p.id === project.parent_project_id) ?? null
+                        : null
+                    }
+                    onProjectNavigate={(id) => navigate(`/projects/${id}`)}
                     taskCounts={data.taskCounts}
                     hasLiveTask={data.hasLiveTask}
                     onCardClick={() => handleProjectCardClick(project)}

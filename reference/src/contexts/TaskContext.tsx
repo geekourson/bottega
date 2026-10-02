@@ -93,6 +93,7 @@ export interface TaskContextValue {
     name: string,
     repoFolderPath: string,
     projectType?: ProjectType,
+    isUmbrella?: boolean,
   ) => Promise<CreateProjectResult>;
   updateProject: (
     id: number,
@@ -280,11 +281,16 @@ export function TaskContextProvider({ children }: { children: ReactNode }) {
       name: string,
       repoFolderPath: string,
       projectType?: ProjectType,
+      isUmbrella?: boolean,
     ): Promise<CreateProjectResult> => {
       try {
-        const response = await api.projects.create(name, repoFolderPath, projectType);
+        const response = await api.projects.create(name, repoFolderPath, projectType, isUmbrella);
         if (response.ok) {
-          const newProject = await response.json();
+          const created = await response.json();
+          // The create endpoint answers a camelCase summary (legacy wire
+          // shape); re-read the full row so flags like is_umbrella are there.
+          const fullResponse = await api.projects.get(created.id).catch(() => null);
+          const newProject = fullResponse?.ok ? await fullResponse.json() : created;
           setProjects((prev) => [...prev, newProject]);
           return { success: true, project: newProject };
         }
@@ -867,6 +873,15 @@ export function TaskContextProvider({ children }: { children: ReactNode }) {
       });
     };
 
+    // Server-pushed task row (flags the client can't infer, e.g. a sub-task
+    // starting to wait on — or being released from — its dependencies).
+    const handleTaskUpdated = (message: ServerMessageOf<'task-updated'>) => {
+      const updated = message.task;
+      if (!updated) return;
+      setTasks((prev) => prev.map((t) => (t.id === updated.id ? { ...t, ...updated } : t)));
+      setSelectedTask((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
+    };
+
     const handleStreamingStartedClearQueue = (message: ServerMessageOf<'streaming-started'>) => {
       if (typeof message.taskId === 'number') clearQueued(message.taskId);
     };
@@ -877,6 +892,7 @@ export function TaskContextProvider({ children }: { children: ReactNode }) {
     subscribe('awaiting-user-answer', handleAwaitingUserAnswer);
     subscribe('ask-user-question-resolved', handleQuestionResolved);
     subscribe('task-queued', handleTaskQueued);
+    subscribe('task-updated', handleTaskUpdated);
 
     return () => {
       unsubscribe('streaming-started', handleStreamingStarted);
@@ -885,6 +901,7 @@ export function TaskContextProvider({ children }: { children: ReactNode }) {
       unsubscribe('awaiting-user-answer', handleAwaitingUserAnswer);
       unsubscribe('ask-user-question-resolved', handleQuestionResolved);
       unsubscribe('task-queued', handleTaskQueued);
+      unsubscribe('task-updated', handleTaskUpdated);
     };
   }, [subscribe, unsubscribe]);
 

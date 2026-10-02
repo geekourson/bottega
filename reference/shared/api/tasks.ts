@@ -54,6 +54,8 @@ export interface UpdateTaskRequest {
   ux_review_required?: boolean;
   // Planned PR title; empty string / null clears it.
   pr_title?: string | null;
+  // Multi-repo epics extra: `false` cancels a sub-task's wait on its dependencies.
+  waiting_on_dependencies?: false;
 }
 
 export type UpdateTaskResponse = TaskRow;

@@ -16,6 +16,9 @@ export const CreateProjectBodySchema = z.object({
     .min(1, 'Repository folder path is required'),
   subprojectPath: z.string().optional(),
   projectType: ProjectTypeSchema.default('web'),
+  // Multi-repo epics extra: an umbrella owns epics and no code. Set once at
+  // creation; never changed afterwards.
+  isUmbrella: z.boolean().optional(),
 });
 export type CreateProjectBody = z.infer<typeof CreateProjectBodySchema>;
 

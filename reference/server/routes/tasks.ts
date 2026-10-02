@@ -35,6 +35,7 @@ import {
   updatePullRequestTitle,
 } from '../services/worktree.js';
 import { createOrUpdatePR } from '../services/prService.js';
+import { onSubtaskProgress, syncEpicStatus } from '../services/epicService.js';
 import { switchWorktree } from '../services/webServerManager.js';
 import type { TaskUpdates } from '../database/db.js';
 import type { ApiError } from '../../shared/api/_common.js';
@@ -137,7 +138,10 @@ router.post(
 
       const { title, description, yolo_mode, ux_review_required } = req.validated!.body as CreateTaskBody;
 
-      const isGit = await isGitRepository(project.repo_folder_path);
+      // An epic (task of an umbrella project, multi-repo epics extra) never
+      // writes code: it is never isolated, even if the workspace folder
+      // happens to be a git repo.
+      const isGit = project.is_umbrella !== 1 && (await isGitRepository(project.repo_folder_path));
 
       // Persist the worktree-isolation decision now (auto rule: isolate iff the
       // repo is a git repo). Every agent run for this task respects this flag
@@ -255,8 +259,29 @@ router.put(
       if (body.pr_title !== undefined) {
         updates.pr_title = body.pr_title?.trim() || null;
       }
+      if (body.waiting_on_dependencies === false) {
+        updates.waiting_on_dependencies = 0;
+      }
 
       const task = tasksDb.update(taskId, updates);
+
+      // Multi-repo epics extra: a completed task may unblock sibling sub-tasks
+      // waiting on it, and may complete its epic.
+      if (updates.status === 'completed' && oldStatus !== 'completed') {
+        void onSubtaskProgress(taskId, {
+          broadcastFn: (convId, msg) => {
+            const fn = req.app.locals.broadcastToConversationSubscribers as
+              | ((id: number, m: unknown) => void)
+              | undefined;
+            fn?.(convId, msg);
+          },
+          broadcastToTaskSubscribersFn: req.app.locals.broadcastToTaskSubscribers,
+        });
+      } else if (updates.status && updates.status !== oldStatus && taskWithProject.parent_task_id) {
+        syncEpicStatus(taskWithProject.parent_task_id, {
+          broadcastToTaskSubscribersFn: req.app.locals.broadcastToTaskSubscribers,
+        });
+      }
 
       if (updates.status && updates.status !== oldStatus) {
         notifyTaskStatusChange(userId, oldStatus, updates.status).catch(

@@ -18,6 +18,8 @@ vi.mock('lucide-react', () => ({
   Sparkles: () => <span data-testid="icon-sparkles" />,
   Zap: () => <span data-testid="icon-zap" />,
   Palette: () => <span data-testid="icon-palette" />,
+  Clock: () => <span data-testid="icon-clock" />,
+  Layers: () => <span data-testid="icon-layers" />,
 }));
 
 // Mock UI components

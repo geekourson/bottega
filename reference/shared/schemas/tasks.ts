@@ -62,6 +62,9 @@ export const UpdateTaskBodySchema = z.object({
   yolo_mode: z.boolean().optional(),
   ux_review_required: z.boolean().optional(),
   pr_title: z.string().max(256).nullable().optional(),
+  // Multi-repo epics extra: only `false` is accepted — it cancels a sub-task's
+  // wait on its dependencies. Parking is server-driven (Run with unmet deps).
+  waiting_on_dependencies: z.literal(false).optional(),
 });
 export type UpdateTaskBody = z.infer<typeof UpdateTaskBodySchema>;
 

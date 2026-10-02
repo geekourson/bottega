@@ -7,7 +7,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { MessageSquare, FileText, Pencil, GitBranch, Trash2, MessageCircleQuestion } from 'lucide-react';
+import { MessageSquare, FileText, Pencil, GitBranch, Trash2, MessageCircleQuestion, Layers, Hourglass } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import AgentPipeline from './AgentPipeline';
 import type { AgentRunRow, TaskRow } from '../../../shared/types/db';
@@ -67,6 +67,8 @@ export interface BoardTaskCardProps {
   onDeleteClick?: ((task: TaskRow) => void) | undefined;
   onDragStart?: ((taskId: number) => void) | undefined;
   isDragging?: boolean | undefined;
+  /** Multi-repo epics extra: the card is an epic (umbrella board). */
+  isEpic?: boolean | undefined;
 }
 
 function BoardTaskCard({
@@ -84,6 +86,7 @@ function BoardTaskCard({
   onDeleteClick,
   onDragStart,
   isDragging = false,
+  isEpic = false,
 }: BoardTaskCardProps) {
   // Extract preview text from documentation
   const preview = useMemo(() => extractPreview(docPreview), [docPreview]);
@@ -189,8 +192,37 @@ function BoardTaskCard({
 
       {/* Meta row: pipeline, branch, conversation count + doc preview */}
       <div className="mt-2 flex flex-col gap-1.5">
-        {/* Agent pipeline progress */}
-        <AgentPipeline agentRuns={agentRuns} yoloMode={!!task.yolo_mode} />
+        {/* Agent pipeline progress (epics run only the breakdown agent) */}
+        {isEpic ? (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Layers className="w-3 h-3 text-primary" />
+            {task.breakdown_approved
+              ? 'Sub-tasks created'
+              : task.planification_complete
+                ? 'Breakdown ready for review'
+                : 'Epic — run the breakdown'}
+          </div>
+        ) : (
+          <AgentPipeline agentRuns={agentRuns} yoloMode={!!task.yolo_mode} />
+        )}
+
+        {/* Multi-repo epics extra: sub-task of an epic / waiting on dependencies */}
+        {(task.parent_task_id != null || task.waiting_on_dependencies === 1) && (
+          <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-medium">
+            {task.parent_task_id != null && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                <Layers className="w-3 h-3" />
+                Epic #{task.parent_task_id}
+              </span>
+            )}
+            {task.waiting_on_dependencies === 1 && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                <Hourglass className="w-3 h-3" />
+                Waiting on dependencies
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Branch name */}
         {branchName && (

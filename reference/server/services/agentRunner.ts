@@ -26,6 +26,7 @@ import {
   generateYoloMessage,
   generatePoMessage,
   generateUxDesignMessage,
+  generateBreakdownMessage,
 } from '../constants/agentPrompts.js';
 import { loadAgentModelSettings } from './agentModelSettings.js';
 import type { AgentRunRow, CreatedConversation } from '../database/db.js';
@@ -140,6 +141,9 @@ export async function startAgentRun(
       break;
     case 'ux_design':
       message = await generateUxDesignMessage(taskDocPath, taskId, taskWithProject.project_id);
+      break;
+    case 'breakdown':
+      message = await generateBreakdownMessage(taskDocPath, taskId, taskWithProject.project_id);
       break;
     default:
       throw new Error(`Unknown agent type: ${agentType}`);

@@ -82,6 +82,7 @@ import settingsRoutes from './routes/settings.js';
 import appSettingsRoutes from './routes/appSettings.js';
 import userAgentModelSettingsRoutes from './routes/userAgentModelSettings.js';
 import poSessionsRoutes from './routes/po-sessions.js';
+import epicsRoutes from './routes/epics.js';
 import { initializeDatabase, agentRunsDb, userDb } from './database/db.js';
 import { initLocalAiPool } from './services/localAiCredentials.js';
 import { initOllamaPool } from './services/ollamaCredentials.js';
@@ -218,6 +219,7 @@ app.use('/api/settings', authenticateToken, settingsRoutes);
 app.use('/api/user-agent-model-settings', authenticateToken, userAgentModelSettingsRoutes);
 
 app.use('/api', authenticateToken, poSessionsRoutes);
+app.use('/api', authenticateToken, epicsRoutes);
 app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
 
 app.get('/api/filesystem/browse', authenticateToken, async (req: Request, res: Response) => {

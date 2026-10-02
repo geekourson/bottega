@@ -127,7 +127,7 @@ describe('Projects Routes - Phase 3', () => {
       expect(response.status).toBe(201);
       expect(response.body).toEqual(newProject);
       // projectType defaults to 'web' via the zod schema when omitted.
-      expect(projectsDb.create).toHaveBeenCalledWith(testUserId, 'New Project', '/path/new', null, 'web');
+      expect(projectsDb.create).toHaveBeenCalledWith(testUserId, 'New Project', '/path/new', null, 'web', false);
     });
 
     it('should pass an explicit projectType through to the DB layer', async () => {
@@ -139,7 +139,7 @@ describe('Projects Routes - Phase 3', () => {
         .send({ name: 'API Project', repoFolderPath: '/path/api', projectType: 'api' });
 
       expect(response.status).toBe(201);
-      expect(projectsDb.create).toHaveBeenCalledWith(testUserId, 'API Project', '/path/api', null, 'api');
+      expect(projectsDb.create).toHaveBeenCalledWith(testUserId, 'API Project', '/path/api', null, 'api', false);
     });
 
     it('should return 400 on an invalid projectType', async () => {

@@ -37,6 +37,8 @@ export interface TaskFormProps {
   onSubmit: (data: TaskFormSubmitData) => Promise<TaskFormSubmitResult>;
   projectName?: string | undefined;
   isSubmitting?: boolean | undefined;
+  /** Multi-repo epics extra: creating an epic in an umbrella project. */
+  isEpic?: boolean | undefined;
 }
 
 function TaskForm({
@@ -45,6 +47,7 @@ function TaskForm({
   onSubmit,
   projectName,
   isSubmitting = false,
+  isEpic = false,
 }: TaskFormProps) {
   const [title, setTitle] = useState('');
   const [documentation, setDocumentation] = useState('');
@@ -115,7 +118,7 @@ function TaskForm({
           <div className="flex items-center gap-2">
             <FileText className="w-5 h-5 text-primary" />
             <h2 className="text-lg font-semibold text-foreground">
-              Create New Task
+              {isEpic ? 'Create New Epic' : 'Create New Task'}
             </h2>
           </div>
           <Button
@@ -200,8 +203,15 @@ function TaskForm({
             </p>
           </div>
 
+          {isEpic && (
+            <p className="text-xs text-muted-foreground p-3 bg-muted/50 rounded-md border border-border">
+              An epic spans the umbrella&apos;s child repositories. Press Run on it to start the
+              breakdown agent: it reads every child repo and proposes per-repo sub-tasks for you to approve.
+            </p>
+          )}
+
           {/* UX Design Review */}
-          <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-md border border-border">
+          <div className={isEpic ? 'hidden' : 'flex items-start gap-3 p-3 bg-muted/50 rounded-md border border-border'}>
             <input
               type="checkbox"
               id="ux-review-required"
@@ -221,7 +231,7 @@ function TaskForm({
           </div>
 
           {/* YOLO mode - single-agent end-to-end workflow */}
-          <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-md border border-border">
+          <div className={isEpic ? 'hidden' : 'flex items-start gap-3 p-3 bg-muted/50 rounded-md border border-border'}>
             <input
               type="checkbox"
               id="yolo-mode"
@@ -263,7 +273,7 @@ function TaskForm({
                   Creating...
                 </>
               ) : (
-                'Create Task'
+                isEpic ? 'Create Epic' : 'Create Task'
               )}
             </Button>
           </div>

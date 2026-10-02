@@ -21,6 +21,9 @@ import type {
   StartPendingAgentsResponse,
 } from '../../shared/api/agent-runs.js';
 import type { ServerToClientMessage } from '../../shared/websocket/messages.js';
+import type { WaitingOnDependenciesResponse } from '../../shared/api/epics.js';
+import { holdIfDependenciesUnmet, isEpic, toTaskRef } from '../services/epicService.js';
+import { epicsDb, projectsDb } from '../database/db.js';
 
 const router = express.Router();
 
@@ -39,6 +42,7 @@ const VALID_AGENT_TYPES: AgentType[] = [
   'yolo',
   'po',
   'ux_design',
+  'breakdown',
 ];
 
 router.get(
@@ -71,10 +75,10 @@ router.post(
   async (
     req: Request<
       { taskId: string },
-      CreateAgentRunResponse | QueuedAgentRunResponse | ApiError | AgentRunConflictResponse,
+      CreateAgentRunResponse | QueuedAgentRunResponse | WaitingOnDependenciesResponse | ApiError | AgentRunConflictResponse,
       CreateAgentRunRequest
     >,
-    res: Response<CreateAgentRunResponse | QueuedAgentRunResponse | ApiError | AgentRunConflictResponse>,
+    res: Response<CreateAgentRunResponse | QueuedAgentRunResponse | WaitingOnDependenciesResponse | ApiError | AgentRunConflictResponse>,
   ) => {
     try {
       const userId = req.user!.id;
@@ -116,6 +120,30 @@ router.post(
 
       const broadcastToTaskSubscribersFn = req.app.locals.broadcastToTaskSubscribers;
       const runOptions = { broadcastFn, broadcastToTaskSubscribersFn, userId };
+
+      // Multi-repo epics extra: an epic (task of an umbrella project) only runs
+      // the breakdown agent, and the breakdown agent only runs on epics.
+      const taskIsEpic = isEpic(taskWithProject);
+      if (taskIsEpic !== (agentType === 'breakdown')) {
+        return res.status(400).json({
+          error: taskIsEpic
+            ? 'An epic only runs the breakdown agent — its sub-tasks run the pipeline in their own projects'
+            : 'The breakdown agent only runs on epics (tasks of an umbrella project)',
+        });
+      }
+
+      // Code work waits for the task's dependencies (sibling sub-tasks of the
+      // same epic) to have their PR ready. Parked tasks are started by the
+      // scheduler (releaseDependents) once the last dependency is satisfied.
+      if (agentType === 'implementation' || agentType === 'yolo') {
+        const unmet = holdIfDependenciesUnmet(taskId, { broadcastToTaskSubscribersFn });
+        if (unmet.length > 0) {
+          return res.status(202).json({ waiting: true, taskId, waitingOn: unmet.map(toTaskRef) });
+        }
+        if (taskWithProject.waiting_on_dependencies === 1) {
+          epicsDb.setWaitingOnDependencies(taskId, false);
+        }
+      }
 
       // Sequential mode: if the user's provider for this agent type is local
       // (ollama/local-ai) and another task is already running, queue this run.
@@ -238,10 +266,21 @@ router.post(
           continue;
         }
 
-        // First step of the pipeline: planification (or yolo for YOLO tasks).
-        // The completion handler then auto-chains the rest.
-        const agentType: AgentType = task.yolo_mode ? 'yolo' : 'planification';
+        // First step of the pipeline: planification (or yolo for YOLO tasks,
+        // or breakdown for the epics of an umbrella project). The completion
+        // handler then auto-chains the rest.
+        const project = projectsDb.getByIdAdmin(projectId);
+        const agentType: AgentType = project?.is_umbrella
+          ? 'breakdown'
+          : task.yolo_mode
+            ? 'yolo'
+            : 'planification';
         const runOptions = { broadcastFn, broadcastToTaskSubscribersFn, userId };
+
+        if (agentType === 'yolo' && holdIfDependenciesUnmet(task.id, { broadcastToTaskSubscribersFn }).length > 0) {
+          skipped.push({ taskId: task.id, reason: 'Waiting on dependencies — will start once they are ready' });
+          continue;
+        }
 
         if (queue && !queue.canRunNow(task.id)) {
           // GPU is busy with another task — queue this one for later.

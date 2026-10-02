@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS projects (
     name TEXT NOT NULL,
     repo_folder_path TEXT UNIQUE NOT NULL,
     project_type TEXT NOT NULL DEFAULT 'web' CHECK(project_type IN ('web','api','cli','game','library')),
+    -- Multi-repo epics extra (extra/multi-repo-epics.md): an umbrella project
+    -- owns epics and no code; a child project points at its umbrella.
+    is_umbrella INTEGER NOT NULL DEFAULT 0,
+    parent_project_id INTEGER DEFAULT NULL REFERENCES projects(id) ON DELETE SET NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -80,6 +84,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     ux_design_approved INTEGER DEFAULT 0 NOT NULL,
     uses_worktree INTEGER DEFAULT 0 NOT NULL,
     pr_title TEXT DEFAULT NULL,
+    -- Multi-repo epics extra: a sub-task points at its epic; an epic records
+    -- that its breakdown was approved; a sub-task may wait on dependencies.
+    parent_task_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL,
+    breakdown_approved INTEGER DEFAULT 0 NOT NULL,
+    waiting_on_dependencies INTEGER DEFAULT 0 NOT NULL,
     completed_at DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -87,6 +96,19 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
+
+-- Task dependencies (multi-repo epics extra): task_id may not start
+-- implementation until depends_on_task_id's PR is ready.
+CREATE TABLE IF NOT EXISTS task_dependencies (
+    task_id INTEGER NOT NULL,
+    depends_on_task_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (task_id, depends_on_task_id),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (depends_on_task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_depends_on ON task_dependencies(depends_on_task_id);
 -- Note: idx_tasks_status and idx_tasks_user_id indexes are created in migration (db.js)
 
 -- Conversations table - Links Claude sessions to tasks
@@ -120,12 +142,12 @@ CREATE INDEX IF NOT EXISTS idx_conversations_task_id ON conversations(task_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_claude_id ON conversations(claude_conversation_id);
 
 -- Task Agent Runs table - Tracks automated agent runs for tasks
--- Agent types: 'planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po', 'ux_design'
+-- Agent types: 'planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po', 'ux_design', 'breakdown'
 -- Status: 'pending', 'running', 'completed', 'failed', 'blocked'
 CREATE TABLE IF NOT EXISTS task_agent_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL,
-    agent_type TEXT NOT NULL CHECK(agent_type IN ('planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po', 'ux_design')),
+    agent_type TEXT NOT NULL CHECK(agent_type IN ('planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po', 'ux_design', 'breakdown')),
     status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed', 'blocked')),
     conversation_id INTEGER,
     -- Provider used for this run; diagnostics only — runtime always reads

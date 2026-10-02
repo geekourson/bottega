@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from 'react';
-import { Folder, Pencil, Trash2 } from 'lucide-react';
+import { CornerDownRight, Folder, Layers, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import StatusBadge from './StatusBadge';
 import type { ProjectRow, TaskStatus } from '../../../shared/types/db';
@@ -25,6 +25,11 @@ export interface ProjectCardGridProps {
   onEditClick?: () => void;
   onDeleteClick?: (projectId: number) => void | Promise<unknown>;
   onStatusBadgeClick?: (status: TaskStatus) => void;
+  // Multi-repo epics extra: an umbrella lists its children; a child links
+  // back to its umbrella. Clicking either navigates to that project's board.
+  childProjects?: ProjectRow[];
+  parentProject?: ProjectRow | null;
+  onProjectNavigate?: (projectId: number) => void;
 }
 
 function ProjectCardGrid({
@@ -35,7 +40,11 @@ function ProjectCardGrid({
   onEditClick,
   onDeleteClick,
   onStatusBadgeClick,
+  childProjects = [],
+  parentProject = null,
+  onProjectNavigate,
 }: ProjectCardGridProps) {
+  const isUmbrella = project.is_umbrella === 1;
   const [isDeleting, setIsDeleting] = useState(false);
 
   const totalTasks = taskCounts.pending + taskCounts.in_progress + taskCounts.completed;
@@ -106,17 +115,63 @@ function ProjectCardGrid({
             'group-hover:bg-primary/15 transition-colors'
           )}
         >
-          <Folder className="w-5 h-5" />
+          {isUmbrella ? <Layers className="w-5 h-5" /> : <Folder className="w-5 h-5" />}
         </div>
         <div className="flex-1 min-w-0 pt-0.5">
-          <h3 className="font-semibold text-foreground truncate text-base leading-tight">
-            {project.name}
-          </h3>
+          <div className="flex items-center gap-2 min-w-0">
+            <h3 className="font-semibold text-foreground truncate text-base leading-tight">
+              {project.name}
+            </h3>
+            {isUmbrella && (
+              <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                Multi-repo
+              </span>
+            )}
+          </div>
+          {parentProject && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onProjectNavigate?.(parentProject.id);
+              }}
+              className="flex items-center gap-1 text-xs text-primary/80 hover:text-primary hover:underline mt-0.5 max-w-full"
+              title={`Open umbrella project ${parentProject.name}`}
+            >
+              <CornerDownRight className="w-3 h-3 flex-shrink-0" />
+              <span className="truncate">{parentProject.name}</span>
+            </button>
+          )}
           <p className="text-xs text-muted-foreground truncate mt-0.5">
             {project.repo_folder_path}
           </p>
         </div>
       </div>
+
+      {/* Child projects (umbrella only) */}
+      {isUmbrella && (
+        <div className="flex flex-wrap gap-1.5 mb-3" data-testid="umbrella-children">
+          {childProjects.length === 0 ? (
+            <span className="text-xs text-muted-foreground italic">No child projects yet</span>
+          ) : (
+            childProjects.map((child) => (
+              <button
+                key={child.id}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onProjectNavigate?.(child.id);
+                }}
+                className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-border bg-muted/50 hover:border-primary/50 hover:text-primary transition-colors"
+                title={`Open ${child.name}`}
+              >
+                <Folder className="w-3 h-3" />
+                {child.name}
+              </button>
+            ))
+          )}
+        </div>
+      )}
 
       {/* Status Badges */}
       <div className="flex flex-wrap gap-2 mb-3">

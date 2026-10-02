@@ -17,6 +17,7 @@ import { worktreeExists } from '../worktree.js';
 import { notifyClaudeComplete } from '../notifications.js';
 import { localGpuQueue } from '../localGpuQueue.js';
 import { localAiPool, ollamaPool } from '../instancePool.js';
+import { holdIfDependenciesUnmet, onSubtaskProgress } from '../epicService.js';
 import type { StreamingContext } from './types.js';
 import type { AgentType } from '@shared/websocket/messages';
 
@@ -77,6 +78,18 @@ export function buildAgentRunCompletionHandler(
               completed_at: updatedRun?.completed_at ?? null,
             },
           });
+        }
+
+        // Multi-repo epics extra: a PR that just became ready (complete-pr.ts
+        // ran during this pr/yolo turn) may unblock sibling sub-tasks waiting
+        // on it. Fire-and-forget — onSubtaskProgress never throws.
+        if (agentType === 'pr' || agentType === 'yolo') {
+          if (tasksDb.getById(taskId)?.pr_agent_complete === 1) {
+            void onSubtaskProgress(taskId, {
+              broadcastFn: ctx.broadcastFn,
+              broadcastToTaskSubscribersFn,
+            });
+          }
         }
 
         // Chain implementation/review/refinement, plus planification for
@@ -259,6 +272,14 @@ async function handleAgentChaining(
           reason: 'plan_not_completed',
         });
       }
+      releaseLocalGpuQueue(taskId, context);
+      return;
+    }
+
+    // Multi-repo epics extra: implementation waits for the task's
+    // dependencies; the scheduler starts it once they are ready.
+    if (holdIfDependenciesUnmet(taskId, { broadcastToTaskSubscribersFn }).length > 0) {
+      console.log(`[ConversationAdapter] Task ${taskId} waits on its dependencies, skipping planification auto-chain`);
       releaseLocalGpuQueue(taskId, context);
       return;
     }

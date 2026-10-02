@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, type FormEvent } from 'react';
-import { X, FolderOpen } from 'lucide-react';
+import { X, FolderOpen, Layers } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import FolderPickerModal from './FolderPickerModal';
@@ -17,6 +17,7 @@ export interface ProjectFormSubmitData {
   name: string;
   repoFolderPath: string;
   projectType: ProjectType;
+  isUmbrella: boolean;
 }
 
 export interface ProjectFormSubmitResult {
@@ -40,6 +41,7 @@ function ProjectForm({
   const [name, setName] = useState('');
   const [repoFolderPath, setRepoFolderPath] = useState('');
   const [projectType, setProjectType] = useState<ProjectType>('web');
+  const [isUmbrella, setIsUmbrella] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
 
@@ -48,6 +50,7 @@ function ProjectForm({
       setName('');
       setRepoFolderPath('');
       setProjectType('web');
+      setIsUmbrella(false);
       setError(null);
     }
   }, [isOpen]);
@@ -71,6 +74,7 @@ function ProjectForm({
         name: name.trim(),
         repoFolderPath: repoFolderPath.trim(),
         projectType,
+        isUmbrella,
       });
 
       if (!result.success) {
@@ -134,10 +138,31 @@ function ProjectForm({
               />
             </div>
 
+            {/* Umbrella (multi-repo epics extra) */}
+            <label className="flex items-start gap-3 p-3 rounded-md border border-border cursor-pointer hover:bg-accent/50 transition-colors">
+              <input
+                type="checkbox"
+                checked={isUmbrella}
+                onChange={(e) => setIsUmbrella(e.target.checked)}
+                className="mt-0.5"
+                data-testid="project-umbrella-checkbox"
+              />
+              <span className="space-y-0.5">
+                <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                  <Layers className="w-4 h-4 text-primary" />
+                  Umbrella project (multi-repo)
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Groups several repositories. Its tasks are epics: a breakdown agent reads every
+                  child repo and splits each epic into sub-tasks in the child projects.
+                </span>
+              </span>
+            </label>
+
             {/* Repository folder path */}
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">
-                Repository Folder Path
+                {isUmbrella ? 'Workspace Folder' : 'Repository Folder Path'}
               </label>
               <button
                 type="button"
@@ -149,6 +174,12 @@ function ProjectForm({
                   {repoFolderPath || 'Choisir un dossier…'}
                 </span>
               </button>
+              {isUmbrella && (
+                <p className="text-xs text-muted-foreground">
+                  Typically the folder that contains the child repositories. It is only the breakdown
+                  agent&apos;s working directory and doesn&apos;t need to be a git repository.
+                </p>
+              )}
             </div>
 
             <FolderPickerModal
@@ -158,8 +189,8 @@ function ProjectForm({
               initialPath={repoFolderPath || undefined}
             />
 
-            {/* Project type */}
-            <div className="space-y-2">
+            {/* Project type (meaningless for an umbrella: it has no code) */}
+            <div className={isUmbrella ? 'hidden' : 'space-y-2'}>
               <label htmlFor="project-type" className="text-sm font-medium text-foreground">
                 Project Type
               </label>

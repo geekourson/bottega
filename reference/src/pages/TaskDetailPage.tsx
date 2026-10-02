@@ -15,6 +15,7 @@ import { useClaudeAuth } from '../contexts/ClaudeAuthContext';
 import { useTaskSubscription } from '../hooks/useTaskSubscription';
 import { api } from '../utils/api';
 import type { ProjectRow, TaskRow, TaskStatus, AgentType } from '../../shared/types/db';
+import type { WaitingOnDependenciesResponse } from '../../shared/api/epics';
 
 interface ActionResultLike {
   success?: boolean;
@@ -93,6 +94,11 @@ function TaskDetailPage() {
   // Find task and load its data
   useEffect(() => {
     if (tasks.length > 0 && project && taskId) {
+      // Navigating across projects (e.g. epic → sub-task in a child project)
+      // reuses this page: wait until both the project and its task list have
+      // caught up with the URL, or the stale list would trigger the redirect.
+      if (project.id !== parseInt(projectId ?? '', 10)) return;
+      if (tasks.some(t => t.project_id !== project.id)) return;
       const foundTask = tasks.find(t => t.id === parseInt(taskId, 10));
       if (foundTask) {
         setTask(foundTask);
@@ -235,7 +241,16 @@ function TaskDetailPage() {
       const response = await api.agentRuns.create(task.id, agentType);
 
       if (response.status === 202) {
-        const data = await (response as unknown as Response).json() as { queued: true; position: number };
+        const data = await (response as unknown as Response).json() as
+          | { queued: true; position: number }
+          | WaitingOnDependenciesResponse;
+        if ('waiting' in data) {
+          // Multi-repo epics extra: parked until its dependencies' PRs are ready.
+          toast.info(
+            `En attente des dépendances (${data.waitingOn.map((d) => `#${d.id}`).join(', ')}) — démarrera automatiquement`,
+          );
+          return;
+        }
         toast.info(`GPU local occupé — agent mis en attente (position ${data.position} dans la queue)`);
         return;
       }

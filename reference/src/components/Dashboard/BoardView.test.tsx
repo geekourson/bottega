@@ -141,6 +141,9 @@ vi.mock('lucide-react', () => ({
   MessageCircleQuestion: () => <span data-testid="icon-question" />,
   BrainCircuit: () => <span data-testid="icon-brain-circuit" />,
   Play: () => <span data-testid="icon-play" />,
+  CornerLeftUp: () => <span data-testid="icon-corner-left-up" />,
+  Layers: () => <span data-testid="icon-layers" />,
+  Hourglass: () => <span data-testid="icon-hourglass" />,
 }));
 
 // Helper to render with Router
@@ -167,6 +170,8 @@ describe('BoardView Component', () => {
   ] as unknown as TaskRow[];
 
   const defaultContextValue = {
+    projects: [],
+    loadProjects: vi.fn(),
     tasks: mockTasks,
     isLoadingTasks: false,
     createTask: vi.fn(),

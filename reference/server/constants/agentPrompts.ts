@@ -9,7 +9,8 @@
  */
 
 import { renderPrompt, resolvePromptPath } from '../services/promptRenderer.js';
-import { tasksDb } from '../database/db.js';
+import { epicsDb, tasksDb } from '../database/db.js';
+import { getEpicBreakdownPath, getProjectReadmePath } from '../services/documentation.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -282,6 +283,39 @@ export async function generatePoMessage(
     : '';
 
   return renderPrompt('po', { projectId, repoPath, existingTasks, createTaskScriptPath, userInstructions }, projectId);
+}
+
+/**
+ * Multi-repo epics extra: the breakdown agent's prompt. Lists the umbrella's
+ * child projects (the only valid sub-task targets) with their absolute paths.
+ */
+export async function generateBreakdownMessage(
+  taskDocPath: string,
+  taskId: number,
+  umbrellaProjectId: number,
+): Promise<string> {
+  const children = epicsDb.getChildProjects(umbrellaProjectId);
+  const childProjects =
+    children.length === 0
+      ? '_This umbrella has no child projects yet. Tell the user to attach child projects to the umbrella (board → Child projects) and stop._'
+      : children
+          .map((p) => {
+            const repoPath = p.subproject_path ? path.join(p.repo_folder_path, p.subproject_path) : p.repo_folder_path;
+            return `- **${p.name}** — projectId \`${p.id}\`, type \`${p.project_type}\`, path \`${repoPath}\`, README \`${getProjectReadmePath(p.repo_folder_path)}\``;
+          })
+          .join('\n');
+
+  return renderPrompt(
+    'breakdown',
+    {
+      taskDocPath,
+      taskId,
+      breakdownPath: getEpicBreakdownPath(umbrellaProjectId, taskId),
+      childProjects,
+      scriptsPath: SCRIPTS_DIR,
+    },
+    umbrellaProjectId,
+  );
 }
 
 /**

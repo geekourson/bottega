@@ -129,18 +129,23 @@ export function backfillUserAgentModelSettings(database: Database.Database): voi
 }
 
 /**
- * One-shot backfill: add the `po` agent entry to every user's settings_json
- * that was seeded before the PO agent was introduced. Uses the user's existing
- * `planification` setting as the model/effort reference so the PO agent picks
- * whatever the user already configured for planning work.
+ * One-shot backfill: add a newly introduced agent's entry to every user's
+ * settings_json seeded before that agent existed. Uses the user's existing
+ * `planification` setting as the model/effort reference so the new agent picks
+ * whatever the user already configured for planning work. Guarded by a
+ * per-agent sentinel app_settings key.
  */
-function backfillPoAgentModelSettings(database: Database.Database): void {
+function backfillAgentModelSettingsEntry(
+  database: Database.Database,
+  agentType: AgentType,
+  sentinelKey: string,
+): void {
   const sentinel = database
-    .prepare(`SELECT value FROM app_settings WHERE key = 'po_agent_settings_backfilled'`)
-    .get();
+    .prepare(`SELECT value FROM app_settings WHERE key = ?`)
+    .get(sentinelKey);
   if (sentinel) return;
 
-  console.log('Running migration: Backfilling per-user agent_model_settings for po agent');
+  console.log(`Running migration: Backfilling per-user agent_model_settings for ${agentType} agent`);
 
   const rows = database
     .prepare('SELECT user_id, settings_json FROM user_agent_model_settings')
@@ -153,11 +158,11 @@ function backfillPoAgentModelSettings(database: Database.Database): void {
   for (const row of rows) {
     try {
       const settings = JSON.parse(row.settings_json) as Record<string, unknown>;
-      if (settings.po) continue;
+      if (settings[agentType]) continue;
       const ref = (settings.planification ?? settings.implementation ?? {
         provider: 'anthropic', model: 'opus', effort: 'high',
       }) as { provider: string; model: string; effort: string | null };
-      settings.po = { provider: ref.provider, model: ref.model, effort: ref.effort };
+      settings[agentType] = { provider: ref.provider, model: ref.model, effort: ref.effort };
       stmt.run(JSON.stringify(settings), row.user_id);
     } catch {
       // Skip malformed rows — loadAgentModelSettings will fail loud for them.
@@ -167,9 +172,9 @@ function backfillPoAgentModelSettings(database: Database.Database): void {
   database
     .prepare(
       `INSERT INTO app_settings (key, value, updated_at)
-       VALUES ('po_agent_settings_backfilled', '1', CURRENT_TIMESTAMP)`,
+       VALUES (?, '1', CURRENT_TIMESTAMP)`,
     )
-    .run();
+    .run(sentinelKey);
 }
 
 const runMigrations = (): void => {
@@ -292,6 +297,21 @@ const runMigrations = (): void => {
       }
       console.log(`Migration: backfilled uses_worktree=1 for ${backfilled} task(s) with an existing worktree`);
     }
+
+    // Multi-repo epics extra (extra/multi-repo-epics.md).
+    if (!taskColumnNames.includes('parent_task_id')) {
+      console.log('Running migration: Adding parent_task_id column to tasks (multi-repo epics)');
+      db.exec('ALTER TABLE tasks ADD COLUMN parent_task_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL');
+    }
+    if (!taskColumnNames.includes('breakdown_approved')) {
+      console.log('Running migration: Adding breakdown_approved column to tasks (multi-repo epics)');
+      db.exec('ALTER TABLE tasks ADD COLUMN breakdown_approved INTEGER DEFAULT 0 NOT NULL');
+    }
+    if (!taskColumnNames.includes('waiting_on_dependencies')) {
+      console.log('Running migration: Adding waiting_on_dependencies column to tasks (multi-repo epics)');
+      db.exec('ALTER TABLE tasks ADD COLUMN waiting_on_dependencies INTEGER DEFAULT 0 NOT NULL');
+    }
+    db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id)');
 
     try {
       db.prepare('SELECT 1 FROM task_agent_runs LIMIT 1').get();
@@ -512,7 +532,7 @@ const runMigrations = (): void => {
           CREATE TABLE task_agent_runs_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             task_id INTEGER NOT NULL,
-            agent_type TEXT NOT NULL CHECK(agent_type IN ('planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po', 'ux_design')),
+            agent_type TEXT NOT NULL CHECK(agent_type IN ('planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po', 'ux_design', 'breakdown')),
             status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'queued', 'running', 'completed', 'failed', 'blocked')),
             conversation_id INTEGER,
             provider TEXT NOT NULL DEFAULT 'anthropic',
@@ -530,6 +550,38 @@ const runMigrations = (): void => {
     } catch (migrationError) {
       const message = migrationError instanceof Error ? migrationError.message : String(migrationError);
       console.error('Error migrating task_agent_runs to add queued status:', message);
+    }
+
+    // Multi-repo epics extra: the `breakdown` agent type.
+    try {
+      const checkBreakdown = db
+        .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='task_agent_runs'`)
+        .get() as { sql: string } | undefined;
+
+      if (checkBreakdown && !checkBreakdown.sql.includes("'breakdown'")) {
+        console.log('Running migration: Adding breakdown agent type to task_agent_runs');
+        db.exec(`
+          CREATE TABLE task_agent_runs_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            agent_type TEXT NOT NULL CHECK(agent_type IN ('planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'po', 'ux_design', 'breakdown')),
+            status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'queued', 'running', 'completed', 'failed', 'blocked')),
+            conversation_id INTEGER,
+            provider TEXT NOT NULL DEFAULT 'anthropic',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            completed_at DATETIME,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+          );
+          INSERT INTO task_agent_runs_new SELECT * FROM task_agent_runs;
+          DROP TABLE task_agent_runs;
+          ALTER TABLE task_agent_runs_new RENAME TO task_agent_runs;
+          CREATE INDEX idx_task_agent_runs_task_id ON task_agent_runs(task_id);
+        `);
+      }
+    } catch (migrationError) {
+      const message = migrationError instanceof Error ? migrationError.message : String(migrationError);
+      console.error('Error migrating task_agent_runs to add breakdown agent type:', message);
     }
 
     const convTableInfoUpdated = db
@@ -641,6 +693,17 @@ const runMigrations = (): void => {
       db.exec("ALTER TABLE projects ADD COLUMN project_type TEXT NOT NULL DEFAULT 'web'");
     }
 
+    // Multi-repo epics extra (extra/multi-repo-epics.md).
+    if (!projectColumnNames.includes('is_umbrella')) {
+      console.log('Running migration: Adding is_umbrella column to projects (multi-repo epics)');
+      db.exec('ALTER TABLE projects ADD COLUMN is_umbrella INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!projectColumnNames.includes('parent_project_id')) {
+      console.log('Running migration: Adding parent_project_id column to projects (multi-repo epics)');
+      db.exec('ALTER TABLE projects ADD COLUMN parent_project_id INTEGER DEFAULT NULL REFERENCES projects(id) ON DELETE SET NULL');
+    }
+    db.exec('CREATE INDEX IF NOT EXISTS idx_projects_parent_project_id ON projects(parent_project_id)');
+
     if (!columnNames.includes('is_admin')) {
       console.log('Running migration: Adding is_admin column to users');
       db.exec('ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT 0');
@@ -747,7 +810,8 @@ const runMigrations = (): void => {
     `);
 
     backfillUserAgentModelSettings(db);
-    backfillPoAgentModelSettings(db);
+    backfillAgentModelSettingsEntry(db, 'po', 'po_agent_settings_backfilled');
+    backfillAgentModelSettingsEntry(db, 'breakdown', 'breakdown_agent_settings_backfilled');
 
     console.log('Database migrations completed successfully');
   } catch (error) {
@@ -1022,6 +1086,7 @@ export interface CreatedProject {
   repoFolderPath: string;
   subprojectPath: string | null;
   projectType: ProjectType;
+  isUmbrella: 0 | 1;
 }
 
 export interface ProjectUpdates {
@@ -1045,20 +1110,22 @@ const projectsDb = {
     name: string,
     repoFolderPath: string,
     subprojectPath: string | null = null,
-    projectType: ProjectType = 'web'
+    projectType: ProjectType = 'web',
+    isUmbrella: boolean = false,
   ): CreatedProject => {
     const insertProject = db.prepare(
-      'INSERT INTO projects (user_id, name, repo_folder_path, subproject_path, project_type) VALUES (?, ?, ?, ?, ?)'
+      'INSERT INTO projects (user_id, name, repo_folder_path, subproject_path, project_type, is_umbrella) VALUES (?, ?, ?, ?, ?, ?)'
     );
+    const umbrellaFlag: 0 | 1 = isUmbrella ? 1 : 0;
     const insertMember = db.prepare(
       'INSERT INTO project_members (project_id, user_id) VALUES (?, ?)'
     );
 
     const createWithMembership = db.transaction((): CreatedProject => {
-      const result = insertProject.run(userId, name, repoFolderPath, subprojectPath, projectType);
+      const result = insertProject.run(userId, name, repoFolderPath, subprojectPath, projectType, umbrellaFlag);
       const projectId = lastInsertId(result.lastInsertRowid);
       insertMember.run(projectId, userId);
-      return { id: projectId, userId, name, repoFolderPath, subprojectPath, projectType };
+      return { id: projectId, userId, name, repoFolderPath, subprojectPath, projectType, isUmbrella: umbrellaFlag };
     });
 
     return createWithMembership();
@@ -1209,6 +1276,9 @@ export type TaskWithProject = TaskRow & {
   repo_folder_path: string;
   subproject_path: string | null;
   project_type: ProjectType;
+  // Multi-repo epics extra: a task in an umbrella project is an epic.
+  project_is_umbrella: 0 | 1;
+  project_parent_project_id: number | null;
 };
 
 export interface TaskUpdates {
@@ -1222,6 +1292,9 @@ export interface TaskUpdates {
   ux_review_required?: 0 | 1 | boolean;
   uses_worktree?: 0 | 1;
   pr_title?: string | null;
+  parent_task_id?: number | null;
+  breakdown_approved?: 0 | 1;
+  waiting_on_dependencies?: 0 | 1;
 }
 
 const tasksDb = {
@@ -1300,7 +1373,9 @@ const tasksDb = {
                 p.name AS project_name,
                 p.repo_folder_path,
                 p.subproject_path,
-                p.project_type
+                p.project_type,
+                p.is_umbrella AS project_is_umbrella,
+                p.parent_project_id AS project_parent_project_id
          FROM tasks t
          JOIN projects p ON t.project_id = p.id
          WHERE t.id = ?`
@@ -1320,6 +1395,9 @@ const tasksDb = {
       'ux_review_required',
       'uses_worktree',
       'pr_title',
+      'parent_task_id',
+      'breakdown_approved',
+      'waiting_on_dependencies',
     ];
     const setClause: string[] = [];
     const values: unknown[] = [];
@@ -1473,6 +1551,75 @@ const tasksDb = {
        WHERE id = ?`
     ).run(id);
     return tasksDb.getById(id);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// epicsDb — multi-repo epics extra (extra/multi-repo-epics.md)
+// ---------------------------------------------------------------------------
+
+const epicsDb = {
+  /** Child projects of an umbrella, regardless of the caller's membership. */
+  getChildProjects: (umbrellaId: number): ProjectRow[] => {
+    return db
+      .prepare('SELECT * FROM projects WHERE parent_project_id = ? ORDER BY name COLLATE NOCASE')
+      .all(umbrellaId) as ProjectRow[];
+  },
+
+  /** Replace an umbrella's children in one transaction. */
+  setChildProjects: (umbrellaId: number, childIds: readonly number[]): void => {
+    const detach = db.prepare(
+      'UPDATE projects SET parent_project_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE parent_project_id = ?',
+    );
+    const attach = db.prepare(
+      'UPDATE projects SET parent_project_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    );
+    db.transaction(() => {
+      detach.run(umbrellaId);
+      for (const childId of childIds) attach.run(umbrellaId, childId);
+    })();
+  },
+
+  /** Sub-tasks of an epic, oldest first (creation order = topological order). */
+  getSubtasks: (epicId: number): TaskRow[] => {
+    return db
+      .prepare('SELECT * FROM tasks WHERE parent_task_id = ? ORDER BY id ASC')
+      .all(epicId) as TaskRow[];
+  },
+
+  addDependency: (taskId: number, dependsOnTaskId: number): void => {
+    db.prepare(
+      'INSERT OR IGNORE INTO task_dependencies (task_id, depends_on_task_id) VALUES (?, ?)',
+    ).run(taskId, dependsOnTaskId);
+  },
+
+  /** Tasks `taskId` depends on. */
+  getDependencies: (taskId: number): TaskRow[] => {
+    return db
+      .prepare(
+        `SELECT t.* FROM task_dependencies d
+         JOIN tasks t ON t.id = d.depends_on_task_id
+         WHERE d.task_id = ? ORDER BY t.id ASC`,
+      )
+      .all(taskId) as TaskRow[];
+  },
+
+  /** Tasks that depend on `taskId`. */
+  getDependents: (taskId: number): TaskRow[] => {
+    return db
+      .prepare(
+        `SELECT t.* FROM task_dependencies d
+         JOIN tasks t ON t.id = d.task_id
+         WHERE d.depends_on_task_id = ? ORDER BY t.id ASC`,
+      )
+      .all(taskId) as TaskRow[];
+  },
+
+  setWaitingOnDependencies: (taskId: number, waiting: boolean): TaskRow | undefined => {
+    db.prepare(
+      `UPDATE tasks SET waiting_on_dependencies = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    ).run(waiting ? 1 : 0, taskId);
+    return tasksDb.getById(taskId);
   },
 };
 
@@ -1866,6 +2013,7 @@ export {
   appSettingsDb,
   userAgentModelSettingsDb,
   projectSettingsDb,
+  epicsDb,
 };
 
 // Re-export the row types so `.js` consumers can JSDoc-import from this module

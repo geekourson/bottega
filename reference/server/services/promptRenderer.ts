@@ -120,6 +120,13 @@ const PROMPT_DEFINITIONS: PromptDefinition[] = [
     file: 'po.md',
     variables: ['projectId', 'repoPath', 'existingTasks', 'createTaskScriptPath', 'userInstructions'],
   },
+  {
+    name: 'breakdown',
+    label: 'Epic Breakdown (multi-repo)',
+    kind: 'prompt',
+    file: 'breakdown.md',
+    variables: ['taskDocPath', 'taskId', 'breakdownPath', 'childProjects', 'scriptsPath'],
+  },
 ];
 
 const PROMPT_BY_NAME = new Map(PROMPT_DEFINITIONS.map((p) => [p.name, p]));

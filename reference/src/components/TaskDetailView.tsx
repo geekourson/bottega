@@ -16,6 +16,8 @@ import MarkdownEditor from './MarkdownEditor';
 import ConversationList from './ConversationList';
 import AgentSection from './AgentSection';
 import ReviewRecording from './ReviewRecording';
+import EpicPanel from './Epic/EpicPanel';
+import EpicContextBanner from './Epic/EpicContextBanner';
 import CIFixModal from './CIFixModal';
 import DiffViewer from './DiffViewer';
 import InlineRenameField from './InlineRenameField';
@@ -719,7 +721,10 @@ Please:
 
   if (!task) return null;
 
-  const currentStatus = STATUS_OPTIONS.find(s => s.value === task.status) ?? STATUS_OPTIONS[0]!;
+  // Multi-repo epics extra: a task of an umbrella project is an epic.
+  const isEpic = project?.is_umbrella === 1;
+
+  const currentStatus =STATUS_OPTIONS.find(s => s.value === task.status) ?? STATUS_OPTIONS[0]!;
 
   const handleStatusChange = async (newStatus: TaskStatus) => {
     if (newStatus === task.status || !onStatusChange) return;
@@ -1342,6 +1347,9 @@ Please:
         </div>
       )}
 
+      {/* Multi-repo epics extra: link back to the epic + dependencies */}
+      {task.parent_task_id != null && <EpicContextBanner task={task} />}
+
       {/* Content - Split view */}
       <div className="flex-1 flex flex-col md:flex-row overflow-auto md:overflow-hidden">
         {/* Left panel - Conversations */}
@@ -1390,6 +1398,13 @@ Please:
 
           {rightTab === 'docs' ? (
             <div className="flex-1 flex flex-col min-h-0 md:overflow-y-auto">
+              {isEpic && (
+                <EpicPanel
+                  epic={task}
+                  isBreakdownRunning={agentRuns.some((r) => r.agent_type === 'breakdown' && r.status === 'running')}
+                  className="flex-shrink-0 border-t-0 border-b"
+                />
+              )}
               <MarkdownEditor
                 content={taskDoc}
                 onSave={onSaveTaskDoc}
@@ -1397,9 +1412,11 @@ Please:
                 onShowClick={onShowDocumentation}
                 isLoading={isLoadingDoc}
                 placeholder="No task documentation yet. Click Edit to describe what needs to be done."
-                className="md:flex-1 md:min-h-0"
+                // Epics stack the epic panel above the doc: keep the editor readable
+                // instead of letting it shrink to nothing.
+                className={isEpic ? 'min-h-[240px] flex-shrink-0' : 'md:flex-1 md:min-h-0'}
               />
-              {task.status === 'pending' && onUpdateTaskFlags && (
+              {task.status === 'pending' && onUpdateTaskFlags && !isEpic && (
                 <div className="flex-shrink-0 flex gap-3 px-3 py-2 border-t border-border">
                   <button
                     onClick={() => void onUpdateTaskFlags(task.id, { ux_review_required: task.ux_review_required !== 1 })}
@@ -1440,6 +1457,7 @@ Please:
                 onResumeAgent={handleResumeAgent}
                 yoloMode={task.yolo_mode === 1}
                 uxReviewRequired={task.ux_review_required === 1}
+                epicMode={isEpic}
                 className="flex-shrink-0"
               />
               <ReviewRecording taskId={task.id} className="flex-shrink-0" />

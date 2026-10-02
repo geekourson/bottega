@@ -80,6 +80,8 @@ export interface BoardColumnProps {
   draggingTaskId?: number | null;
   /** Optional action rendered in the column header (e.g. "Run all"). */
   headerAction?: React.ReactNode;
+  /** Multi-repo epics extra: the column lists epics (umbrella board). */
+  isEpicBoard?: boolean;
   className?: string;
 }
 
@@ -99,6 +101,7 @@ function BoardColumn({
   onTaskDragStart,
   draggingTaskId = null,
   headerAction,
+  isEpicBoard = false,
   className,
 }: BoardColumnProps) {
   const config = statusConfig[status] || statusConfig.pending;
@@ -203,6 +206,7 @@ function BoardColumn({
                 onDeleteClick={onTaskDelete}
                 onDragStart={onTaskDragStart}
                 isDragging={draggingTaskId === task.id}
+                isEpic={isEpicBoard}
               />
             ))
           )}

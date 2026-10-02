@@ -35,7 +35,9 @@ export type AgentType =
   | 'pr'
   | 'yolo'
   | 'po'
-  | 'ux_design';
+  | 'ux_design'
+  // Multi-repo epics extra: splits an epic into per-repo sub-tasks.
+  | 'breakdown';
 
 export type AgentRunStatus =
   | 'pending'
@@ -82,6 +84,10 @@ export interface ProjectRow {
   serve_symlink_path: string | null;
   systemd_service_name: string | null;
   app_url: string | null;
+  // Multi-repo epics extra (extra/multi-repo-epics.md). An umbrella owns epics
+  // and no code; a child project points at its umbrella (one level only).
+  is_umbrella: SqliteBoolean;
+  parent_project_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -119,9 +125,23 @@ export interface TaskRow {
   // Title chosen up front for the PR this task will open (manual button or PR
   // agent). NULL lets the agent pick one from the task.
   pr_title: string | null;
+  // Multi-repo epics extra: the epic a sub-task belongs to; whether an epic's
+  // breakdown was approved (sub-tasks created); whether a sub-task asked to
+  // start implementation while a dependency wasn't ready yet.
+  parent_task_id: number | null;
+  breakdown_approved: SqliteBoolean;
+  waiting_on_dependencies: SqliteBoolean;
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// ---- task_dependencies (multi-repo epics extra) ---------------------------
+
+export interface TaskDependencyRow {
+  task_id: number;
+  depends_on_task_id: number;
+  created_at: string;
 }
 
 // ---- conversations --------------------------------------------------------

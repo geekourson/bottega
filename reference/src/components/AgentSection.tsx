@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, type ComponentType } from 'react';
-import { Play, Check, Loader2, FileText, Code, CheckCircle, MessageCircle, AlertCircle, GitPullRequest, Sparkles, Zap, Palette, Clock } from 'lucide-react';
+import { Play, Check, Loader2, FileText, Code, CheckCircle, MessageCircle, AlertCircle, GitPullRequest, Sparkles, Zap, Palette, Clock, Layers } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import type { AgentRunRow, AgentType } from '../../shared/types/db';
@@ -65,6 +65,12 @@ const AGENT_TYPES: AgentConfig[] = [
     label: 'YOLO',
     description: 'Plan, implement, test, and open PR in one pass',
     icon: Zap
+  },
+  {
+    type: 'breakdown',
+    label: 'Breakdown',
+    description: 'Read every child repo and split the epic into per-repo sub-tasks',
+    icon: Layers
   }
 ];
 
@@ -75,6 +81,8 @@ interface AgentSectionProps {
   onResumeAgent?: ((conversationId: number) => void) | undefined;
   yoloMode?: boolean | undefined;
   uxReviewRequired?: boolean | undefined;
+  /** Multi-repo epics extra: an epic only runs the breakdown agent. */
+  epicMode?: boolean | undefined;
   className?: string | undefined;
 }
 
@@ -93,9 +101,12 @@ function AgentSection({
   onResumeAgent,
   yoloMode = false,
   uxReviewRequired = false,
+  epicMode = false,
   className
 }: AgentSectionProps) {
   const visibleAgents = AGENT_TYPES.filter(a => {
+    if (epicMode) return a.type === 'breakdown';
+    if (a.type === 'breakdown') return false;
     if (yoloMode) return a.type === 'yolo';
     if (a.type === 'yolo') return false;
     if (a.type === 'ux_design') return uxReviewRequired;

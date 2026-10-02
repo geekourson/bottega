@@ -26,6 +26,7 @@ import {
   MessageCircleQuestion,
   BrainCircuit,
   Play,
+  CornerLeftUp,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
@@ -38,6 +39,8 @@ import BoardColumn from './BoardColumn';
 import TaskForm from '../TaskForm';
 import AskQuestionModal, { type AskQuestionPayload } from '../AskQuestionModal';
 import PoSessionModal from '../PoSessionModal';
+import ChildProjectsStrip from '../Epic/ChildProjectsStrip';
+import ChildProjectsModal from '../Epic/ChildProjectsModal';
 import type { AgentRunRow, ProjectRow, TaskRow, TaskStatus } from '../../../shared/types/db';
 import type { ServerMessageOf } from '../../../shared/websocket/messages';
 import type { CreateTaskRequest } from '../../../shared/api/tasks';
@@ -67,6 +70,8 @@ function BoardView({ className, project }: BoardViewProps) {
   const navigate = useNavigate();
   const { requireClaudeAuth } = useClaudeAuth();
   const {
+    projects,
+    loadProjects,
     tasks,
     isLoadingTasks,
     createTask,
@@ -98,6 +103,22 @@ function BoardView({ className, project }: BoardViewProps) {
 
   // Batch "run all pending agents" state
   const [isStartingPending, setIsStartingPending] = useState(false);
+
+  // Multi-repo epics extra: an umbrella's board holds epics and links to its
+  // child projects; a child's board links back to its umbrella.
+  const isUmbrella = project?.is_umbrella === 1;
+  const childProjects = useMemo(
+    () => (project ? projects.filter((p) => p.parent_project_id === project.id) : []),
+    [projects, project],
+  );
+  const parentProject = useMemo(
+    () =>
+      project?.parent_project_id != null
+        ? projects.find((p) => p.id === project.parent_project_id) ?? null
+        : null,
+    [projects, project],
+  );
+  const [showChildProjectsModal, setShowChildProjectsModal] = useState(false);
 
   // Subscribe to task-channel events for every task currently displayed on
   // the board so the per-card Live indicator keeps updating between REST
@@ -518,7 +539,7 @@ function BoardView({ className, project }: BoardViewProps) {
           </div>
 
           {/* Center: Active Web Server indicator */}
-          {webServerStatus?.isConfigured && (
+          {!isUmbrella && webServerStatus?.isConfigured && (
             <div className="hidden md:flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-2.5 py-1 rounded-full">
               <Server className="w-3.5 h-3.5" />
               <span>
@@ -577,7 +598,7 @@ function BoardView({ className, project }: BoardViewProps) {
                 setShowPoSessionModal(true);
               }}
               disabled={isStartingPoSession}
-              className="flex-shrink-0"
+              className={cn('flex-shrink-0', isUmbrella && 'hidden')}
               title="Start a PO planning session to propose tasks for the next sprint"
             >
               {isStartingPoSession ? (
@@ -594,7 +615,7 @@ function BoardView({ className, project }: BoardViewProps) {
               className="flex-shrink-0"
             >
               <Plus className="w-4 h-4 mr-1.5" />
-              New Task
+              {isUmbrella ? 'New Epic' : 'New Task'}
             </Button>
           </div>
         </div>
@@ -603,6 +624,26 @@ function BoardView({ className, project }: BoardViewProps) {
         <p className="text-xs text-muted-foreground truncate mt-3">
           {project.repo_folder_path}
         </p>
+
+        {/* Multi-repo epics extra: parent ⇄ children navigation */}
+        {isUmbrella && (
+          <ChildProjectsStrip
+            childProjects={childProjects}
+            onOpenProject={(id) => navigate(`/projects/${id}`)}
+            onManage={() => setShowChildProjectsModal(true)}
+          />
+        )}
+        {parentProject && (
+          <button
+            type="button"
+            onClick={() => navigate(`/projects/${parentProject.id}`)}
+            className="flex items-center gap-1 mt-2 text-xs text-primary hover:underline"
+            data-testid="parent-project-link"
+          >
+            <CornerLeftUp className="w-3.5 h-3.5" />
+            Part of umbrella project {parentProject.name}
+          </button>
+        )}
       </div>
 
       {/* Board columns */}
@@ -636,6 +677,7 @@ function BoardView({ className, project }: BoardViewProps) {
           onTaskDrop={handleTaskDrop}
           onTaskDragStart={handleTaskDragStart}
           draggingTaskId={draggingTaskId}
+          isEpicBoard={isUmbrella}
           headerAction={
             tasksByStatus.pending.length > 0 ? (
               <button
@@ -670,6 +712,7 @@ function BoardView({ className, project }: BoardViewProps) {
           onTaskDrop={handleTaskDrop}
           onTaskDragStart={handleTaskDragStart}
           draggingTaskId={draggingTaskId}
+          isEpicBoard={isUmbrella}
         />
         <BoardColumn
           status="in_review"
@@ -686,6 +729,7 @@ function BoardView({ className, project }: BoardViewProps) {
           onTaskDrop={handleTaskDrop}
           onTaskDragStart={handleTaskDragStart}
           draggingTaskId={draggingTaskId}
+          isEpicBoard={isUmbrella}
         />
         <BoardColumn
           status="completed"
@@ -702,6 +746,7 @@ function BoardView({ className, project }: BoardViewProps) {
           onTaskDrop={handleTaskDrop}
           onTaskDragStart={handleTaskDragStart}
           draggingTaskId={draggingTaskId}
+          isEpicBoard={isUmbrella}
         />
       </div>
 
@@ -722,7 +767,18 @@ function BoardView({ className, project }: BoardViewProps) {
         onSubmit={handleCreateTask}
         projectName={project?.name}
         isSubmitting={isCreatingTask}
+        isEpic={isUmbrella}
       />
+
+      {isUmbrella && (
+        <ChildProjectsModal
+          isOpen={showChildProjectsModal}
+          umbrella={project}
+          projects={projects}
+          onClose={() => setShowChildProjectsModal(false)}
+          onSaved={loadProjects}
+        />
+      )}
 
       {/* Ask Question Modal */}
       <AskQuestionModal

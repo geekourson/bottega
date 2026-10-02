@@ -17,6 +17,7 @@ interface ProjectSubmitPayload {
   name: string;
   repoFolderPath: string;
   projectType: ProjectType;
+  isUmbrella?: boolean;
 }
 
 interface ActionResult {
@@ -61,10 +62,11 @@ function DashboardPage() {
     name,
     repoFolderPath,
     projectType,
+    isUmbrella,
   }: ProjectSubmitPayload): Promise<ActionResult> => {
     setIsCreatingProject(true);
     try {
-      const result = await createProject(name, repoFolderPath, projectType);
+      const result = await createProject(name, repoFolderPath, projectType, isUmbrella);
       if (result.success) {
         setShowProjectForm(false);
       }

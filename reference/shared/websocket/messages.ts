@@ -31,7 +31,8 @@ export type AgentType =
   | 'pr'
   | 'yolo'
   | 'po'
-  | 'ux_design';
+  | 'ux_design'
+  | 'breakdown';
 
 export type AgentRunStatus =
   | 'pending'
@@ -141,6 +142,7 @@ export type ClientToServerMessage =
 
 import type { SDKMessage } from '../sdk/transcript.js';
 import type { Provider } from '../providers/types.js';
+import type { TaskRow } from '../types/db.js';
 
 export type ServerToClientMessage =
   // ---- Streaming pipeline ----
@@ -232,6 +234,14 @@ export type ServerToClientMessage =
       taskId: TaskId;
       /** 1-based position in the local GPU queue. */
       position: number;
+    }
+  // Fresh task row after a server-side flag change the client can't infer
+  // (UX design approved, waiting on / released from dependencies, epic
+  // status sync — see extra/multi-repo-epics.md).
+  | {
+      type: 'task-updated';
+      taskId: TaskId;
+      task: TaskRow;
     }
   // ---- Thinking state ----
   | {

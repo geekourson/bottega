@@ -86,6 +86,7 @@ Opinionated features. Each is independent; implement what you want.
 | [`extra/pr-comment-retrigger.md`](./extra/pr-comment-retrigger.md) | Re-run the PR agent automatically when a PR receives review comments (GitHub webhook). |
 | [`extra/prompt-and-model-customization.md`](./extra/prompt-and-model-customization.md) | Per-agent prompt overrides and per-user model/effort selection. |
 | [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | Accounts, API keys, project membership, admin, and role-driven behavior (e.g. auto-advancing past the plan gate for non-technical users). |
+| [`extra/multi-repo-epics.md`](./extra/multi-repo-epics.md) | Umbrella projects over several repos: a breakdown agent reads every child repo and splits an epic into per-repo sub-tasks with a shared contract and dependencies; an epic view across children. |
 | [`extra/chat-ux.md`](./extra/chat-ux.md) | Manual-chat conveniences: slash commands, file attachments, voice input, title generation, the context-usage meter. |
 
 ## The reference implementation

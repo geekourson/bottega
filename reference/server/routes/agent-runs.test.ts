@@ -15,7 +15,22 @@ vi.mock('../database/db.js', () => ({
     updateStatus: vi.fn(),
     linkConversation: vi.fn(),
     delete: vi.fn()
+  },
+  // Multi-repo epics extra
+  epicsDb: {
+    getDependencies: vi.fn(() => []),
+    setWaitingOnDependencies: vi.fn(),
+  },
+  projectsDb: {
+    getByIdAdmin: vi.fn(),
   }
+}));
+
+// Every agent on Anthropic, no local-GPU queueing.
+vi.mock('../services/agentModelSettings.js', () => ({
+  loadAgentModelSettings: vi.fn(() =>
+    new Proxy({}, { get: () => ({ provider: 'anthropic', model: 'opus', effort: 'high' }) }),
+  ),
 }));
 
 // Mock the projectService
@@ -30,7 +45,7 @@ vi.mock('../services/agentRunner.js', () => ({
 }));
 
 import agentRunsRoutes from './agent-runs.js';
-import { tasksDb, agentRunsDb } from '../database/db.js';
+import { tasksDb, agentRunsDb, epicsDb } from '../database/db.js';
 import { hasProjectAccess } from '../services/projectService.js';
 import { startAgentRun, getRunningAgentForTask } from '../services/agentRunner.js';
 
@@ -289,6 +304,58 @@ describe('Agent Runs Routes', () => {
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Task not found');
+    });
+
+    describe('multi-repo epics', () => {
+      it('only runs the breakdown agent on an epic', async () => {
+        vi.mocked(tasksDb.getWithProject).mockReturnValue({ ...mockTaskWithProject, project_is_umbrella: 1 } as never);
+
+        const response = await request(app).post('/api/tasks/1/agent-runs').send({ agentType: 'planification' });
+
+        expect(response.status).toBe(400);
+        expect(response.body.error).toMatch(/only runs the breakdown agent/);
+        expect(startAgentRun).not.toHaveBeenCalled();
+      });
+
+      it('starts the breakdown agent on an epic', async () => {
+        vi.mocked(tasksDb.getWithProject).mockReturnValue({ ...mockTaskWithProject, project_is_umbrella: 1 } as never);
+
+        const response = await request(app).post('/api/tasks/1/agent-runs').send({ agentType: 'breakdown' });
+
+        expect(response.status).toBe(201);
+        expect(startAgentRun).toHaveBeenCalledWith(1, 'breakdown', expect.anything());
+      });
+
+      it('rejects the breakdown agent outside an epic', async () => {
+        const response = await request(app).post('/api/tasks/1/agent-runs').send({ agentType: 'breakdown' });
+
+        expect(response.status).toBe(400);
+        expect(response.body.error).toMatch(/only runs on epics/);
+      });
+
+      it('parks implementation with 202 while a dependency is not ready', async () => {
+        vi.mocked(epicsDb.getDependencies).mockReturnValue([
+          { id: 7, project_id: 2, title: 'API', status: 'in_progress', pr_agent_complete: 0 },
+        ] as never);
+
+        const response = await request(app).post('/api/tasks/1/agent-runs').send({ agentType: 'implementation' });
+
+        expect(response.status).toBe(202);
+        expect(response.body).toMatchObject({ waiting: true, taskId: 1, waitingOn: [{ id: 7, satisfied: false }] });
+        expect(epicsDb.setWaitingOnDependencies).toHaveBeenCalledWith(1, true);
+        expect(startAgentRun).not.toHaveBeenCalled();
+      });
+
+      it('starts implementation once every dependency is ready', async () => {
+        vi.mocked(epicsDb.getDependencies).mockReturnValue([
+          { id: 7, project_id: 2, title: 'API', status: 'in_review', pr_agent_complete: 1 },
+        ] as never);
+
+        const response = await request(app).post('/api/tasks/1/agent-runs').send({ agentType: 'implementation' });
+
+        expect(response.status).toBe(201);
+        expect(startAgentRun).toHaveBeenCalledWith(1, 'implementation', expect.anything());
+      });
     });
 
     it('should return 409 if an agent is already running', async () => {

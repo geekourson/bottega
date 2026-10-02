@@ -24,6 +24,7 @@ export interface CreateProjectRequest {
   repoFolderPath: string;
   subprojectPath?: string;
   projectType?: ProjectType;
+  isUmbrella?: boolean;
 }
 
 export type CreateProjectResponse = ProjectRow;

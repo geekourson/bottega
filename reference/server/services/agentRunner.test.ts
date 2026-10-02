@@ -346,6 +346,7 @@ describe('agentRunner', () => {
         yolo: { provider: 'anthropic', model: 'opus', effort: 'high' },
         po: { provider: 'anthropic', model: 'opus', effort: 'high' },
         ux_design: { provider: 'anthropic', model: 'sonnet', effort: 'high' },
+        breakdown: { provider: 'anthropic', model: 'opus', effort: 'high' },
       });
 
       await startAgentRun(1, 'planification');
@@ -370,6 +371,7 @@ describe('agentRunner', () => {
         yolo: { provider: 'anthropic', model: 'opus', effort: 'high' },
         po: { provider: 'anthropic', model: 'opus', effort: 'high' },
         ux_design: { provider: 'anthropic', model: 'sonnet', effort: 'high' },
+        breakdown: { provider: 'anthropic', model: 'opus', effort: 'high' },
       });
 
       await startAgentRun(1, 'planification');

@@ -35,6 +35,14 @@ export function getTaskDocPath(projectId: number, taskId: number): string {
   return path.join(getArchiveTasksFolderPath(projectId), `task-${taskId}.md`);
 }
 
+/**
+ * Multi-repo epics extra: the machine-readable breakdown the breakdown agent
+ * writes next to the epic doc (survives everything, like the doc itself).
+ */
+export function getEpicBreakdownPath(projectId: number, taskId: number): string {
+  return path.join(getArchiveTasksFolderPath(projectId), `task-${taskId}.breakdown.json`);
+}
+
 export function getTaskInputFilesPath(projectId: number, taskId: number): string {
   return path.join(getArchiveTasksFolderPath(projectId), `task-${taskId}`, INPUT_FILES_FOLDER);
 }
@@ -289,6 +297,11 @@ export function deleteTaskArchive(projectId: number, taskId: number): void {
     const docPath = getTaskDocPath(projectId, taskId);
     if (fs.existsSync(docPath)) {
       fs.unlinkSync(docPath);
+    }
+
+    const breakdownPath = getEpicBreakdownPath(projectId, taskId);
+    if (fs.existsSync(breakdownPath)) {
+      fs.unlinkSync(breakdownPath);
     }
 
     const taskFolder = path.join(getArchiveTasksFolderPath(projectId), `task-${taskId}`);

@@ -92,7 +92,7 @@ router.post(
   ) => {
     try {
       const userId = req.user!.id;
-      const { name, repoFolderPath, subprojectPath, projectType } =
+      const { name, repoFolderPath, subprojectPath, projectType, isUmbrella } =
         req.validated!.body as CreateProjectBody;
 
       const project = projectsDb.create(
@@ -101,6 +101,7 @@ router.post(
         repoFolderPath.trim(),
         subprojectPath?.trim() || null,
         projectType,
+        !!isUmbrella,
       );
 
       // The pre-TS handler returned the `projectsDb.create` summary

@@ -177,6 +177,12 @@ import type {
   UpdateUserAgentModelSettingsResponse,
 } from '../../shared/api/userAgentModelSettings';
 import type { AgentModelSettings } from '../../shared/types/agentModelSettings';
+import type {
+  ApproveBreakdownResponse,
+  EpicContextResponse,
+  EpicOverviewResponse,
+  SetChildProjectsResponse,
+} from '../../shared/api/epics';
 
 // `TypedFetch<T>` keeps all `Response` ergonomics (`.ok`, `.status`,
 // `.headers`) intact while narrowing `.json()` to `T`.
@@ -471,9 +477,11 @@ export const api = {
       name: string,
       repoFolderPath: string,
       projectType?: ProjectType,
+      isUmbrella?: boolean,
     ): TypedFetch<CreateProjectResponse> => {
       const body: CreateProjectRequest = { name, repoFolderPath };
       if (projectType) body.projectType = projectType;
+      if (isUmbrella) body.isUmbrella = true;
       return authenticatedFetch<CreateProjectResponse>('/api/projects', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -481,6 +489,12 @@ export const api = {
     },
     get: (id: number): TypedFetch<GetProjectResponse> =>
       authenticatedFetch<GetProjectResponse>(`/api/projects/${id}`),
+    // Multi-repo epics extra: replace an umbrella's child projects.
+    setChildren: (id: number, childIds: number[]): TypedFetch<SetChildProjectsResponse> =>
+      authenticatedFetch<SetChildProjectsResponse>(`/api/projects/${id}/children`, {
+        method: 'PUT',
+        body: JSON.stringify({ childIds }),
+      }),
     update: (id: number, data: UpdateProjectRequest): TypedFetch<UpdateProjectResponse> =>
       authenticatedFetch<UpdateProjectResponse>(`/api/projects/${id}`, {
         method: 'PUT',
@@ -822,6 +836,19 @@ export const api = {
       ),
     queuedTasks: (): TypedFetch<{ taskIds: number[] }> =>
       authenticatedFetch<{ taskIds: number[] }>('/api/agent-runs/queued-tasks'),
+  },
+
+  // Multi-repo epics extra (extra/multi-repo-epics.md).
+  epics: {
+    get: (epicId: number): TypedFetch<EpicOverviewResponse> =>
+      authenticatedFetch<EpicOverviewResponse>(`/api/tasks/${epicId}/epic`),
+    approveBreakdown: (epicId: number, startPlanning: boolean): TypedFetch<ApproveBreakdownResponse> =>
+      authenticatedFetch<ApproveBreakdownResponse>(`/api/tasks/${epicId}/breakdown/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ startPlanning }),
+      }),
+    context: (taskId: number): TypedFetch<EpicContextResponse> =>
+      authenticatedFetch<EpicContextResponse>(`/api/tasks/${taskId}/epic-context`),
   },
 
   // Streaming sessions (for live indicator). The endpoint lives inline in

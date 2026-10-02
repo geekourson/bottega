@@ -103,6 +103,14 @@ vi.mock('./ConversationList', () => ({
   ),
 }));
 
+// Multi-repo epics extra: the epic panel/banner have their own data fetching.
+vi.mock('./Epic/EpicPanel', () => ({
+  default: () => <div data-testid="epic-panel">EpicPanel</div>,
+}));
+vi.mock('./Epic/EpicContextBanner', () => ({
+  default: () => <div data-testid="epic-context-banner">EpicContextBanner</div>,
+}));
+
 vi.mock('./ReviewRecording', () => ({
   default: ({ taskId, className }: { taskId: number; className?: string }) => (
     <div data-testid="review-recording" data-task-id={taskId} className={className}>
@@ -168,6 +176,8 @@ vi.mock('lucide-react', () => ({
   Palette: () => <span data-testid="icon-palette" />,
   GitCompareArrows: () => <span data-testid="icon-git-compare-arrows" />,
   RotateCcw: () => <span data-testid="icon-rotate-ccw" />,
+  Clock: () => <span data-testid="icon-clock" />,
+  Layers: () => <span data-testid="icon-layers" />,
 }));
 
 describe('TaskDetailView Component', () => {

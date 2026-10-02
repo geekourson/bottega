@@ -56,6 +56,7 @@ export const AGENT_TYPES_WITH_SETTINGS: readonly AgentType[] = [
   'yolo',
   'po',
   'ux_design',
+  'breakdown',
 ];
 
 // Historical global default (all agents on Opus/high). No longer a runtime
@@ -71,6 +72,7 @@ export const DEFAULT_AGENT_MODEL_SETTINGS: AgentModelSettings = {
   yolo: { provider: 'anthropic', model: 'opus', effort: 'high' },
   po: { provider: 'anthropic', model: 'opus', effort: 'high' },
   ux_design: { provider: 'anthropic', model: 'sonnet', effort: 'high' },
+  breakdown: { provider: 'anthropic', model: 'opus', effort: 'high' },
 };
 
 // First-connect seed defaults (chosen with the user): a new user who connects
