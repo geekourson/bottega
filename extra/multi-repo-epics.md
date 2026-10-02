@@ -193,6 +193,10 @@ Validation (shared zod schema + semantic checks,
 `shared/schemas/epics.ts` + `server/services/epicService.ts`):
 
 - 1–30 sub-tasks; `key` unique, `[a-z0-9-]`; `title` non-empty;
+- optional `branch` (a valid branch name, unique per repository) and
+  `prTitle`: approval creates the worktree on that branch and pre-fills the
+  task's PR title; left out, the defaults apply (`task/<id>-<title-slug>`,
+  a title chosen by the PR agent). Both stay renamable on the sub-task page;
 - every `projectId` is a current child of the epic's umbrella;
 - every `dependsOn` entry names another key; no self-dependency; no cycle.
 

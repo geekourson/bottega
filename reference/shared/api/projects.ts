@@ -38,6 +38,19 @@ export interface UpdateProjectRequest {
 
 export type UpdateProjectResponse = ProjectRow;
 
+// ---- Project settings (/api/projects/:id/settings) -------------------------
+
+export interface ProjectSettingsResponse {
+  github_token_set: boolean;
+  // Keep one commit per PR (agents + Create PR button squash first).
+  squash_before_pr: boolean;
+}
+
+export interface UpdateProjectSettingsRequest {
+  github_token?: string;
+  squash_before_pr?: boolean;
+}
+
 export interface DeleteProjectResponse {
   success: true;
 }

@@ -199,10 +199,12 @@ describe('promptRenderer', () => {
         prContextLine: '- No PR exists yet',
         prCreateOrVerifyBlock: '### 1. CREATE BLOCK CONTENT',
         commitMessageRules: '## Commit messages RULES',
+        squashPolicy: '## One commit per PR POLICY',
         scriptsPath: '/scripts',
       });
       expect(out).toContain('### 1. CREATE BLOCK CONTENT');
       expect(out).toContain('## Commit messages RULES');
+      expect(out).toContain('## One commit per PR POLICY');
       expect(out).toContain('complete-pr.ts 99');
       expect(out).toContain('gh pr checks');
     });

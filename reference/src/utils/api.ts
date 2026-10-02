@@ -48,6 +48,8 @@ import type {
   ListProjectPromptsResponse,
   GetProjectPromptResponse,
   SaveProjectPromptResponse,
+  ProjectSettingsResponse,
+  UpdateProjectSettingsRequest,
 } from '../../shared/api/projects';
 import type {
   ListAllTasksResponse,
@@ -538,13 +540,13 @@ export const api = {
         headers: {}, // Let browser set Content-Type for FormData
       });
     },
-    getSettings: (projectId: number): TypedFetch<unknown> =>
-      authenticatedFetch<unknown>(`/api/projects/${projectId}/settings`),
+    getSettings: (projectId: number): TypedFetch<ProjectSettingsResponse> =>
+      authenticatedFetch<ProjectSettingsResponse>(`/api/projects/${projectId}/settings`),
     updateSettings: (
       projectId: number,
-      settings: { github_token?: string },
-    ): TypedFetch<unknown> =>
-      authenticatedFetch<unknown>(`/api/projects/${projectId}/settings`, {
+      settings: UpdateProjectSettingsRequest,
+    ): TypedFetch<ProjectSettingsResponse> =>
+      authenticatedFetch<ProjectSettingsResponse>(`/api/projects/${projectId}/settings`, {
         method: 'PUT',
         body: JSON.stringify(settings),
       }),

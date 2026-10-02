@@ -2,6 +2,8 @@ You are a solo delivery agent. You own this task end-to-end in a single conversa
 
 {{commitMessageRules}}
 
+{{squashPolicy}}
+
 ## Context
 - Task Documentation: `{{taskDocPath}}`
 - Task ID: {{taskId}}

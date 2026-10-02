@@ -558,6 +558,8 @@ export async function createPullRequest(
   body: string,
   userId?: number,
   projectId?: number,
+  // The branch history was rewritten (squash): replace the remote branch.
+  forcePush: boolean = false,
 ): Promise<CreatePRResult> {
   const worktreePath = getWorktreePath(repoPath, taskId);
   const ghToken = userId ? getGitHubToken(userId, projectId) : null;
@@ -570,7 +572,11 @@ export async function createPullRequest(
     }
     assertValidBranchName(branch);
 
-    await runCommand('git', ['push', '-u', 'origin', branch], { cwd: worktreePath, env: gitEnv });
+    await runCommand(
+      'git',
+      ['push', ...(forcePush ? ['--force-with-lease'] : []), '-u', 'origin', branch],
+      { cwd: worktreePath, env: gitEnv },
+    );
 
     // Title and body pass straight through as argv. No escaping needed —
     // shell metacharacters inside title/body are literal bytes here.
@@ -884,6 +890,34 @@ export function formatCommitMessage(message: string): { subject: string; body: s
   if (restText) bodyParts.push(restText);
 
   return { subject: subject || 'Update', body: bodyParts.length ? wrapAt(bodyParts.join('\n\n'), 72) : null };
+}
+
+/**
+ * Squash every commit of the task branch (since it forked from the default
+ * branch) into a single commit — for repositories that keep one commit per
+ * PR (project setting `squash_before_pr`). No-op with fewer than two commits.
+ */
+export async function squashBranchCommits(
+  repoPath: string,
+  taskId: number,
+  message: string,
+): Promise<RemoveWorktreeResult & { squashed?: number }> {
+  const worktreePath = getWorktreePath(repoPath, taskId);
+  try {
+    const baseBranch = assertValidBranchName(await getDefaultBranch(repoPath), 'default branch');
+    const { stdout: mergeBase } = await runCommand('git', ['merge-base', 'HEAD', baseBranch], { cwd: worktreePath });
+    const base = mergeBase.trim();
+    const { stdout: count } = await runCommand('git', ['rev-list', '--count', `${base}..HEAD`], { cwd: worktreePath });
+    const commits = parseInt(count.trim(), 10) || 0;
+    if (commits < 2) return { success: true, squashed: 0 };
+
+    await runCommand('git', ['reset', '--soft', base], { cwd: worktreePath });
+    const { subject, body } = formatCommitMessage(message);
+    await runCommand('git', ['commit', '-m', subject, ...(body ? ['-m', body] : [])], { cwd: worktreePath });
+    return { success: true, squashed: commits };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export async function commitAllChanges(

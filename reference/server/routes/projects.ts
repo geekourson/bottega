@@ -265,7 +265,10 @@ router.get(
       }
 
       const githubToken = projectSettingsDb.getValue(projectId, 'github_token');
-      res.json({ github_token_set: Boolean(githubToken) });
+      res.json({
+        github_token_set: Boolean(githubToken),
+        squash_before_pr: projectSettingsDb.getValue(projectId, 'squash_before_pr') === '1',
+      });
     } catch (error) {
       console.error('Error getting project settings:', error);
       res.status(500).json({ error: 'Failed to get project settings' } satisfies ApiError);
@@ -297,8 +300,19 @@ router.put(
         }
       }
 
+      if (body.squash_before_pr !== undefined) {
+        if (body.squash_before_pr) {
+          projectSettingsDb.setValue(projectId, 'squash_before_pr', '1');
+        } else {
+          projectSettingsDb.deleteValue(projectId, 'squash_before_pr');
+        }
+      }
+
       const githubToken = projectSettingsDb.getValue(projectId, 'github_token');
-      res.json({ github_token_set: Boolean(githubToken) });
+      res.json({
+        github_token_set: Boolean(githubToken),
+        squash_before_pr: projectSettingsDb.getValue(projectId, 'squash_before_pr') === '1',
+      });
     } catch (error) {
       console.error('Error updating project settings:', error);
       res.status(500).json({ error: 'Failed to update project settings' } satisfies ApiError);

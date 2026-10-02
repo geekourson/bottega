@@ -10,6 +10,7 @@
 
 import { renderPrompt, resolvePromptPath } from '../services/promptRenderer.js';
 import { epicsDb, tasksDb } from '../database/db.js';
+import { isSquashBeforePr } from '../services/prService.js';
 import { getEpicBreakdownPath, getProjectReadmePath } from '../services/documentation.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,6 +43,24 @@ leaves no intervention half-updated."
 \`\`\`
 
 A body is optional for a trivial change, but the subject rules always apply.`;
+
+/**
+ * Pre-rendered {{squashPolicy}} — empty unless the project keeps one commit
+ * per PR (project setting `squash_before_pr`).
+ */
+export function buildSquashPolicy(projectId?: number): string {
+  if (projectId == null || !isSquashBeforePr(projectId)) return '';
+  return `## One commit per PR (repository policy)
+
+This repository keeps exactly one commit per pull request. This overrides the commit steps below:
+
+- **Before opening the PR**, squash every commit of the branch into one, with a message that describes the whole change (commit message rules above):
+  \`\`\`bash
+  git fetch origin && git reset --soft $(git merge-base HEAD origin/main) && git commit -m "<subject>" -m "<body>"
+  \`\`\`
+  (use the repository's default branch if it isn't \`main\`). If the branch was already pushed, push with \`git push --force-with-lease -u origin $(git branch --show-current)\`.
+- **After the PR exists** (CI fixes, review feedback), never add a new commit: fold the fix into the single commit with \`git add -A && git commit --amend\` (update the message if the scope of the change moved, otherwise \`--no-edit\`), then \`git push --force-with-lease\`.`;
+}
 
 interface FileContext {
   path?: string;
@@ -146,7 +165,7 @@ export async function generatePrAgentMessage(
     ? `- Existing PR: ${prUrl}`
     : '- No PR exists yet - you need to create one';
   const prCreateOrVerifyBlock = buildPrCreateOrVerifyBlock(taskId, prUrl, SCRIPTS_DIR, prTitle);
-  return renderPrompt('pr', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock, commitMessageRules: COMMIT_MESSAGE_RULES, scriptsPath: SCRIPTS_DIR }, projectId);
+  return renderPrompt('pr', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock, commitMessageRules: COMMIT_MESSAGE_RULES, squashPolicy: buildSquashPolicy(projectId), scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generateYoloMessage(
@@ -160,7 +179,7 @@ export async function generateYoloMessage(
     ? `- Existing PR: ${prUrl}`
     : '- No PR exists yet - you will create one at the end';
   const prCreateOrVerifyBlock = buildPrCreateOrVerifyBlock(taskId, prUrl, SCRIPTS_DIR, prTitle);
-  return renderPrompt('yolo', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock, commitMessageRules: COMMIT_MESSAGE_RULES, scriptsPath: SCRIPTS_DIR }, projectId);
+  return renderPrompt('yolo', { taskDocPath, taskId, prContextLine, prCreateOrVerifyBlock, commitMessageRules: COMMIT_MESSAGE_RULES, squashPolicy: buildSquashPolicy(projectId), scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generatePrAgentCommentMessage(
@@ -209,7 +228,7 @@ ${fileContext.diffHunk}
 ${quotedComment}
 ${fileLocationSection}`;
 
-  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection, commitMessageRules: COMMIT_MESSAGE_RULES, scriptsPath: SCRIPTS_DIR }, projectId);
+  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection, commitMessageRules: COMMIT_MESSAGE_RULES, squashPolicy: buildSquashPolicy(projectId), scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generatePrAgentReviewMessage(
@@ -275,7 +294,7 @@ ${commentEntries}
 
   const feedbackSection = `## User Feedback${reviewBodySection}${inlineCommentsSection}`;
 
-  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection, commitMessageRules: COMMIT_MESSAGE_RULES, scriptsPath: SCRIPTS_DIR }, projectId);
+  return renderPrompt('pr-feedback', { taskDocPath, taskId, prUrl, feedbackSection, commitMessageRules: COMMIT_MESSAGE_RULES, squashPolicy: buildSquashPolicy(projectId), scriptsPath: SCRIPTS_DIR }, projectId);
 }
 
 export async function generateUxDesignMessage(

@@ -12,7 +12,9 @@ import {
   createPullRequest as worktreeCreatePR,
   getPullRequestStatus,
   getWorktreeStatus,
+  squashBranchCommits,
 } from './worktree.js';
+import { projectSettingsDb } from '../database/db.js';
 import type { TaskRow } from '../database/db.js';
 
 export interface PRResult {
@@ -56,8 +58,23 @@ export async function createOrUpdatePR(
     return { success: false, error: 'No changes to create a PR' };
   }
 
-  // 3. Create PR
-  return worktreeCreatePR(repoPath, taskId, title, body, userId, projectId);
+  // 3. Repositories that keep one commit per PR: squash the branch first.
+  let squashed = false;
+  if (projectId != null && isSquashBeforePr(projectId)) {
+    const squash = await squashBranchCommits(repoPath, taskId, title);
+    if (!squash.success) {
+      return { success: false, error: `Failed to squash commits: ${squash.error}` };
+    }
+    squashed = (squash.squashed ?? 0) > 0;
+  }
+
+  // 4. Create PR
+  return worktreeCreatePR(repoPath, taskId, title, body, userId, projectId, squashed);
+}
+
+/** Project setting: squash a task's commits into one before opening its PR. */
+export function isSquashBeforePr(projectId: number): boolean {
+  return projectSettingsDb.getValue(projectId, 'squash_before_pr') === '1';
 }
 
 /**

@@ -2,6 +2,8 @@
 
 {{commitMessageRules}}
 
+{{squashPolicy}}
+
 ## Context
 - Task Documentation: `{{taskDocPath}}`
 - Task ID: {{taskId}}

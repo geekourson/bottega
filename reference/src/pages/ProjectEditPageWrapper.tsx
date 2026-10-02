@@ -5,6 +5,7 @@ import {
   useRef,
   type KeyboardEvent,
 } from 'react';
+import SquashBeforePrSetting from '../components/SquashBeforePrSetting';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Trash2, FolderOpen, AlertTriangle, Archive, Server, FileText } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -460,6 +461,14 @@ function ProjectEditPageWrapper() {
               {project.repo_folder_path || 'No folder path'}
             </div>
           </div>
+
+          {/* Git policy (not for umbrellas: they have no code) */}
+          {project.is_umbrella !== 1 && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Git</label>
+              <SquashBeforePrSetting projectId={project.id} />
+            </div>
+          )}
 
           {/* Project README */}
           <div className="pt-6 border-t border-border">

@@ -54,6 +54,7 @@ import {
   hasUncommittedChanges,
   commitAllChanges,
   formatCommitMessage,
+  squashBranchCommits,
   pushChanges,
   resolveTaskWorkingDir,
   renameWorktreeBranch,
@@ -662,6 +663,52 @@ describe('Worktree Service', () => {
     it('wraps the body at 72 characters', () => {
       const { body } = formatCommitMessage(`Fix export\n\n${'word '.repeat(40)}`);
       expect(body!.split('\n').every((line) => line.length <= 72)).toBe(true);
+    });
+  });
+
+  describe('squashBranchCommits', () => {
+    const gitCalls = () =>
+      mockRunCommand.mock.calls.filter((c) => c[0] === 'git').map((c) => c[1] as string[]);
+
+    it('squashes every branch commit into one well-formed commit', async () => {
+      withDispatch(async (_cmd, args) => {
+        if (args[0] === 'symbolic-ref') return { stdout: 'refs/remotes/origin/main\n', stderr: '' };
+        if (args[0] === 'merge-base') return { stdout: 'abc123\n', stderr: '' };
+        if (args[0] === 'rev-list') return { stdout: '3\n', stderr: '' };
+        return { stdout: '', stderr: '' };
+      });
+
+      const result = await squashBranchCommits('/repo', 7, 'add bulk update endpoint.');
+
+      expect(result).toEqual({ success: true, squashed: 3 });
+      expect(gitCalls()).toContainEqual(['merge-base', 'HEAD', 'main']);
+      expect(gitCalls()).toContainEqual(['reset', '--soft', 'abc123']);
+      expect(gitCalls()).toContainEqual(['commit', '-m', 'Add bulk update endpoint']);
+    });
+
+    it('leaves a single-commit branch alone', async () => {
+      withDispatch(async (_cmd, args) => {
+        if (args[0] === 'symbolic-ref') return { stdout: 'refs/remotes/origin/main\n', stderr: '' };
+        if (args[0] === 'merge-base') return { stdout: 'abc123\n', stderr: '' };
+        if (args[0] === 'rev-list') return { stdout: '1\n', stderr: '' };
+        return { stdout: '', stderr: '' };
+      });
+
+      expect(await squashBranchCommits('/repo', 7, 'Msg')).toEqual({ success: true, squashed: 0 });
+      expect(gitCalls().some((a) => a[0] === 'reset')).toBe(false);
+    });
+  });
+
+  describe('createPullRequest push', () => {
+    it('force-pushes with lease only when the history was rewritten', async () => {
+      withDispatch(async (_cmd, args) => {
+        if (args.includes('--show-current')) return { stdout: 'task/1-test\n', stderr: '' };
+        return { stdout: 'https://github.com/o/r/pull/1\n', stderr: '' };
+      });
+
+      await createPullRequest('/repo', 1, 'Title', 'Body', undefined, undefined, true);
+      const push = mockRunCommand.mock.calls.find((c) => c[0] === 'git' && (c[1] as string[])[0] === 'push');
+      expect(push![1]).toEqual(['push', '--force-with-lease', '-u', 'origin', 'task/1-test']);
     });
   });
 
