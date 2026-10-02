@@ -9,12 +9,14 @@ import {
   approveBreakdown,
   getEpicContext,
   getEpicOverview,
+  saveEpicBreakdown,
   setChildProjects,
 } from '../services/epicService.js';
 import { ProviderCredentialsMissingError } from '../services/credentials/types.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 import { IdParamsSchema, type IdParams } from '../../shared/schemas/_common.js';
 import {
+  BreakdownSchema,
   ApproveBreakdownBodySchema,
   type ApproveBreakdownBody,
   SetChildProjectsBodySchema,
@@ -90,6 +92,24 @@ router.get(
       res.json(getEpicOverview(id));
     } catch (error) {
       sendError(res, error, 'Failed to load epic');
+    }
+  },
+);
+
+router.put(
+  '/tasks/:id/breakdown',
+  validateParams(IdParamsSchema),
+  validateBody(BreakdownSchema),
+  async (req: Request, res: Response<EpicOverviewResponse | ApiError>) => {
+    try {
+      const { id } = req.validated!.params as IdParams;
+      if (!canAccessTask(id, req.user!.id)) {
+        return res.status(404).json({ error: 'Task not found' });
+      }
+      await saveEpicBreakdown(id, req.validated!.body);
+      res.json(getEpicOverview(id));
+    } catch (error) {
+      sendError(res, error, 'Failed to save the breakdown');
     }
   },
 );

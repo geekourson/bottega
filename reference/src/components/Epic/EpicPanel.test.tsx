@@ -17,6 +17,7 @@ vi.mock('../../utils/api', () => ({
     epics: {
       get: vi.fn(),
       approveBreakdown: vi.fn(),
+      saveBreakdown: vi.fn(),
     },
   },
 }));
@@ -163,6 +164,56 @@ describe('EpicPanel', () => {
 
     expect(await screen.findByText(/has no child projects yet/)).toBeInTheDocument();
     expect(screen.queryByTestId('run-breakdown')).not.toBeInTheDocument();
+  });
+
+  it('expands a proposed sub-task to read its full markdown description', async () => {
+    const longDescription = '## Acceptance criteria\n\n- returns **application/pdf**\n- 404 when missing\n\n' + 'x'.repeat(300);
+    vi.mocked(api.epics.get).mockResolvedValue(
+      ok({
+        ...proposed,
+        breakdown: {
+          ...proposed.breakdown!,
+          subtasks: [{ ...proposed.breakdown!.subtasks[0]!, description: longDescription }],
+        },
+      }),
+    );
+    renderPanel();
+
+    fireEvent.click(await screen.findByTestId('proposed-subtask-api-endpoint'));
+    expect(screen.getByRole('heading', { name: 'Acceptance criteria' })).toBeInTheDocument();
+    expect(screen.getByText('application/pdf')).toBeInTheDocument();
+  });
+
+  it('edits the breakdown and saves it before approval', async () => {
+    vi.mocked(api.epics.get).mockResolvedValue(ok(proposed));
+    vi.mocked(api.epics.saveBreakdown).mockImplementation(async (_id, breakdown) => ok({ ...proposed, breakdown }));
+    renderPanel();
+
+    fireEvent.click(await screen.findByTestId('edit-breakdown'));
+    fireEvent.change(screen.getByLabelText('Title of sub-task 1'), { target: { value: 'PDF endpoint v2' } });
+    fireEvent.click(screen.getByTestId('save-breakdown'));
+
+    await waitFor(() => expect(api.epics.saveBreakdown).toHaveBeenCalled());
+    const saved = vi.mocked(api.epics.saveBreakdown).mock.calls[0]![1];
+    expect(saved.subtasks[0]!.title).toBe('PDF endpoint v2');
+    expect(saved.subtasks[1]!.dependsOn).toEqual(['api-endpoint']);
+    expect(await screen.findByText('PDF endpoint v2')).toBeInTheDocument();
+    expect(screen.queryByTestId('breakdown-editor')).not.toBeInTheDocument();
+  });
+
+  it('shows the server validation error when saving fails', async () => {
+    vi.mocked(api.epics.get).mockResolvedValue(ok(proposed));
+    vi.mocked(api.epics.saveBreakdown).mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: 'Invalid breakdown: the dependencies form a cycle' }),
+    } as never);
+    renderPanel();
+
+    fireEvent.click(await screen.findByTestId('edit-breakdown'));
+    fireEvent.click(screen.getByTestId('save-breakdown'));
+
+    expect(await screen.findByText(/dependencies form a cycle/)).toBeInTheDocument();
+    expect(screen.getByTestId('breakdown-editor')).toBeInTheDocument();
   });
 
   it('shows validation errors of an invalid breakdown file', async () => {

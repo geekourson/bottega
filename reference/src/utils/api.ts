@@ -183,6 +183,7 @@ import type {
   EpicOverviewResponse,
   SetChildProjectsResponse,
 } from '../../shared/api/epics';
+import type { Breakdown } from '../../shared/schemas/epics';
 
 // `TypedFetch<T>` keeps all `Response` ergonomics (`.ok`, `.status`,
 // `.headers`) intact while narrowing `.json()` to `T`.
@@ -846,6 +847,11 @@ export const api = {
       authenticatedFetch<ApproveBreakdownResponse>(`/api/tasks/${epicId}/breakdown/approve`, {
         method: 'POST',
         body: JSON.stringify({ startPlanning }),
+      }),
+    saveBreakdown: (epicId: number, breakdown: Breakdown): TypedFetch<EpicOverviewResponse> =>
+      authenticatedFetch<EpicOverviewResponse>(`/api/tasks/${epicId}/breakdown`, {
+        method: 'PUT',
+        body: JSON.stringify(breakdown),
       }),
     context: (taskId: number): TypedFetch<EpicContextResponse> =>
       authenticatedFetch<EpicContextResponse>(`/api/tasks/${taskId}/epic-context`),

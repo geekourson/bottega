@@ -18,6 +18,7 @@
  */
 
 import fs from 'fs';
+import path from 'path';
 import { epicsDb, projectsDb, tasksDb } from '../database/db.js';
 import type { ProjectRow, TaskRow, TaskWithProject } from '../database/db.js';
 import {
@@ -194,6 +195,34 @@ export function readEpicBreakdown(epic: Pick<TaskRow, 'id' | 'project_id'>): Par
   }
   const childIds = new Set(epicsDb.getChildProjects(epic.project_id).map((p) => p.id));
   return parseBreakdown(fs.readFileSync(breakdownPath, 'utf8'), childIds);
+}
+
+/**
+ * Human edit of a proposed breakdown (before approval). Same validation as
+ * complete-breakdown.ts; a valid breakdown saved by a human counts as ready
+ * for approval (sets planification_complete).
+ */
+export async function saveEpicBreakdown(epicId: number, raw: unknown): Promise<Breakdown> {
+  const epic = tasksDb.getWithProject(epicId);
+  if (!epic) throw new EpicError(404, 'Task not found');
+  if (!isEpic(epic)) throw new EpicError(400, 'This task is not an epic');
+  if (epic.breakdown_approved === 1) {
+    throw new EpicError(409, 'The breakdown was already approved — edit the sub-tasks in their projects');
+  }
+  const { getRunningAgentForTask } = await import('./agentRunner.js');
+  if (getRunningAgentForTask(epicId)) {
+    throw new EpicError(409, 'The breakdown agent is running — wait for it to finish before editing');
+  }
+
+  const childIds = new Set(epicsDb.getChildProjects(epic.project_id).map((p) => p.id));
+  const { breakdown, errors } = parseBreakdown(JSON.stringify(raw), childIds);
+  if (!breakdown) throw new EpicError(422, `Invalid breakdown: ${errors.join('; ')}`);
+
+  const breakdownPath = getEpicBreakdownPath(epic.project_id, epicId);
+  fs.mkdirSync(path.dirname(breakdownPath), { recursive: true });
+  fs.writeFileSync(breakdownPath, `${JSON.stringify(breakdown, null, 2)}\n`, 'utf8');
+  if (epic.planification_complete !== 1) tasksDb.update(epicId, { planification_complete: 1 });
+  return breakdown;
 }
 
 // ---------------------------------------------------------------------------

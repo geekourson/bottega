@@ -71,6 +71,17 @@ const markdownComponents: Components = {
 
 const remarkPlugins = [remarkGfm, remarkBreaks];
 
+/** Read-only rendering with the same markdown styling as the doc viewer. */
+export function MarkdownView({ content, className }: { content: string; className?: string }) {
+  return (
+    <div className={cn('prose prose-sm dark:prose-invert max-w-none break-words [overflow-wrap:anywhere]', className)}>
+      <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 export interface SaveResult {
   success: boolean;
   error?: string | undefined;

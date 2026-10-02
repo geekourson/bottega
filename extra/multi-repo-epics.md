@@ -146,6 +146,15 @@ Like planning, the breakdown agent is a **human gate**: nothing chains after
 it. The user can keep chatting with it in the same conversation to reshape the
 breakdown; each turn re-writes both files and re-runs the script.
 
+The human can also **edit the breakdown directly** before approving it
+(`PUT /api/tasks/:epicId/breakdown`): summary, shared contract, and each
+sub-task's title, target repo, description and dependencies, plus adding or
+removing sub-tasks. The server applies the exact validation of
+`complete-breakdown.ts`, rewrites the JSON, and sets `planification_complete`
+(a valid human-saved breakdown is ready for approval). Edits are refused once
+the breakdown is approved or while the breakdown agent is running. They change
+the JSON — what sub-tasks are created from — not the epic doc's prose.
+
 #### Sizing rule baked into the prompt
 
 Each sub-task must be a normal Bottega task: one repo, one PR, implementable
@@ -291,9 +300,11 @@ The task detail page of an epic swaps the pipeline for:
 - the **Breakdown** agent row (Run / Running / Completed, conversation link);
 - an **Epic panel**, fed by `GET /api/tasks/:epicId/epic`:
   - **before approval** — the proposed breakdown grouped by child project
-    (title, description excerpt, dependencies), validation errors if the file is
-    invalid, and **Approve & create sub-tasks** with a "start planning on every
-    sub-task" checkbox;
+    (title, a plain-text excerpt that expands to the full markdown description,
+    dependencies), the shared contract rendered as markdown, validation errors
+    if the file is invalid, an **Edit** mode, a **Run Breakdown** button, and
+    **Approve & create sub-tasks** with a "start planning on every sub-task"
+    checkbox;
   - **after approval** — every sub-task grouped by child project: status pill,
     live indicator, "waiting on #12" badge, dependency list. Clicking a sub-task
     opens it **in its child project** (`/projects/:childId/tasks/:taskId`);
@@ -316,6 +327,7 @@ The task detail page of an epic swaps the pipeline for:
 | `POST /api/projects` | Accepts `isUmbrella`. |
 | `PUT /api/projects/:id/children` | `{ childIds }` — replaces the umbrella's children. |
 | `GET /api/tasks/:epicId/epic` | Epic + parsed breakdown (or validation error) + sub-tasks with project, dependencies and satisfaction. |
+| `PUT /api/tasks/:epicId/breakdown` | Human edit of the proposed breakdown (same validation as the script). |
 | `POST /api/tasks/:epicId/breakdown/approve` | `{ startPlanning? }` — creates the sub-tasks. |
 | `GET /api/tasks/:id/epic-context` | The parent epic (if any), dependencies and dependents of a sub-task. |
 | `POST /api/tasks/:id/agent-runs` | Rejects pipeline agents on an epic (400), rejects `breakdown` outside an epic (400), answers 202 `waiting` on unmet dependencies. |

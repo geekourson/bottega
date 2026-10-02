@@ -15,11 +15,14 @@ import {
   AlertCircle,
   ArrowRight,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Folder,
   GitBranch,
   Hourglass,
   Layers,
   Loader2,
+  Pencil,
   Play,
   RefreshCw,
 } from 'lucide-react';
@@ -30,6 +33,8 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useTaskContext } from '../../contexts/TaskContext';
 import { useTasksLiveSubscriptions } from '../../hooks/useTasksLiveSubscriptions';
 import TaskStatusPill from './TaskStatusPill';
+import BreakdownEditor from './BreakdownEditor';
+import { MarkdownView } from '../MarkdownEditor';
 import type { EpicOverviewResponse, EpicSubtask, ProjectRef } from '../../../shared/api/epics';
 import type { BreakdownSubtask } from '../../../shared/schemas/epics';
 import type { TaskRow } from '../../../shared/types/db';
@@ -54,7 +59,13 @@ function groupByProject<T>(items: T[], projectOf: (item: T) => ProjectRef, order
 }
 
 function excerpt(text: string, max = 220): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
+  // Plain-text preview of a markdown description (the full render is one click away).
+  const flat = text
+    .replace(/^\s{0,3}(#{1,6}|[-*+]|\d+\.|>)\s+/gm, '')
+    .replace(/:?-{3,}:?/g, '')
+    .replace(/[`*_|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
@@ -70,6 +81,7 @@ export default function EpicPanel({ epic, isBreakdownRunning, onRunBreakdown, cl
   const [isApproving, setIsApproving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
   const [planningErrors, setPlanningErrors] = useState<Array<{ taskId: number; error: string }>>([]);
+  const [isEditing, setIsEditing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -158,9 +170,22 @@ export default function EpicPanel({ epic, isBreakdownRunning, onRunBreakdown, cl
           <Layers className="w-4 h-4 text-primary" />
           {approved ? 'Sub-tasks across repositories' : 'Proposed breakdown'}
         </h3>
-        <Button variant="ghost" size="sm" onClick={() => void load()} className="h-7 w-7 p-0" title="Refresh">
-          <RefreshCw className="w-3.5 h-3.5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          {!approved && overview.breakdown && !isEditing && !isBreakdownRunning && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsEditing(true)}
+              className="h-7 gap-1.5 text-xs"
+              data-testid="edit-breakdown"
+            >
+              <Pencil className="w-3.5 h-3.5" /> Edit
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => void load()} className="h-7 w-7 p-0" title="Refresh">
+            <RefreshCw className="w-3.5 h-3.5" />
+          </Button>
+        </div>
       </div>
 
       {overview.childProjects.length === 0 && (
@@ -178,15 +203,24 @@ export default function EpicPanel({ epic, isBreakdownRunning, onRunBreakdown, cl
           onOpenProject={openProject}
           planningErrors={planningErrors}
         />
+      ) : overview.breakdown && isEditing ? (
+        <BreakdownEditor
+          epicId={epic.id}
+          breakdown={overview.breakdown}
+          projects={overview.childProjects}
+          onCancel={() => setIsEditing(false)}
+          onSaved={(next) => {
+            setOverview(next);
+            setIsEditing(false);
+          }}
+        />
       ) : overview.breakdown ? (
         <>
-          <p className="text-sm text-muted-foreground">{overview.breakdown.summary}</p>
+          <MarkdownView content={overview.breakdown.summary} className="text-muted-foreground" />
           {overview.breakdown.sharedContract.trim() && (
-            <details className="rounded-md border border-border bg-muted/30">
+            <details className="rounded-md border border-border bg-muted/30" data-testid="shared-contract">
               <summary className="cursor-pointer px-3 py-2 text-xs font-medium">Shared contract</summary>
-              <pre className="px-3 pb-3 text-xs whitespace-pre-wrap break-words font-mono text-muted-foreground">
-                {overview.breakdown.sharedContract}
-              </pre>
+              <MarkdownView content={overview.breakdown.sharedContract} className="px-3 pb-3" />
             </details>
           )}
           <ProposedView
@@ -325,21 +359,44 @@ function ProposedView({
           <ProjectHeader project={project} count={items.length} onOpen={() => onOpenProject(project.id)} />
           <ul className="divide-y divide-border">
             {items.map((s) => (
-              <li key={s.key} className="px-3 py-2 space-y-1">
-                <p className="text-sm font-medium">{s.title}</p>
-                <p className="text-xs text-muted-foreground">{excerpt(s.description)}</p>
-                {s.dependsOn.length > 0 && (
-                  <p className="text-xs text-amber-700 dark:text-amber-400 flex items-center gap-1">
-                    <Hourglass className="w-3 h-3" />
-                    After: {s.dependsOn.map((k) => titleByKey.get(k) ?? k).join(', ')}
-                  </p>
-                )}
-              </li>
+              <ProposedSubtask key={s.key} subtask={s} titleByKey={titleByKey} />
             ))}
           </ul>
         </div>
       ))}
     </div>
+  );
+}
+
+function ProposedSubtask({ subtask, titleByKey }: { subtask: BreakdownSubtask; titleByKey: Map<string, string> }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <li className="px-3 py-2 space-y-1">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-start gap-1.5 text-left"
+        aria-expanded={expanded}
+        data-testid={`proposed-subtask-${subtask.key}`}
+      >
+        {expanded ? (
+          <ChevronDown className="w-4 h-4 mt-0.5 flex-shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="w-4 h-4 mt-0.5 flex-shrink-0 text-muted-foreground" />
+        )}
+        <span className="min-w-0">
+          <span className="block text-sm font-medium">{subtask.title}</span>
+          {!expanded && <span className="block text-xs text-muted-foreground">{excerpt(subtask.description)}</span>}
+        </span>
+      </button>
+      {expanded && <MarkdownView content={subtask.description} className="pl-6" />}
+      {subtask.dependsOn.length > 0 && (
+        <p className="text-xs text-amber-700 dark:text-amber-400 flex items-center gap-1 pl-6">
+          <Hourglass className="w-3 h-3" />
+          After: {subtask.dependsOn.map((k) => titleByKey.get(k) ?? k).join(', ')}
+        </p>
+      )}
+    </li>
   );
 }
 

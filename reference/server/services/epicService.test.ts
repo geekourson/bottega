@@ -42,7 +42,9 @@ import {
   getEpicOverview,
   holdIfDependenciesUnmet,
   parseBreakdown,
+  readEpicBreakdown,
   releaseDependents,
+  saveEpicBreakdown,
   setChildProjects,
   syncEpicStatus,
   topologicalOrder,
@@ -322,6 +324,36 @@ describe('approveBreakdown', () => {
     expect(tasksDb.getByProject(apiId)).toHaveLength(0);
     expect(tasksDb.getByProject(frontId)).toHaveLength(0);
     expect(tasksDb.getById(epicId)!.breakdown_approved).toBe(0);
+  });
+});
+
+describe('saveEpicBreakdown', () => {
+  it('saves a human-edited breakdown and marks it ready for approval', async () => {
+    const { umbrellaId, apiId, frontId } = makeUmbrella();
+    const epicId = tasksDb.create(umbrellaId, 'Epic').id;
+    const edited = sampleBreakdown(apiId, frontId);
+    edited.subtasks[1]!.title = 'Renamed endpoint';
+
+    await saveEpicBreakdown(epicId, edited);
+
+    const saved = readEpicBreakdown(tasksDb.getById(epicId)!);
+    expect(saved.breakdown!.subtasks[1]!.title).toBe('Renamed endpoint');
+    expect(tasksDb.getById(epicId)!.planification_complete).toBe(1);
+  });
+
+  it('rejects an invalid breakdown without touching the file', async () => {
+    const { epicId, apiId, frontId } = makeReadyEpic();
+    const bad = sampleBreakdown(apiId, frontId);
+    bad.subtasks[1]!.dependsOn = ['front-button']; // cycle
+
+    await expect(saveEpicBreakdown(epicId, bad)).rejects.toMatchObject({ status: 422 });
+    expect(readEpicBreakdown(tasksDb.getById(epicId)!).breakdown!.subtasks[1]!.dependsOn).toEqual([]);
+  });
+
+  it('refuses edits once the breakdown is approved', async () => {
+    const { epicId, apiId, frontId } = makeReadyEpic();
+    await approveBreakdown(epicId, userId);
+    await expect(saveEpicBreakdown(epicId, sampleBreakdown(apiId, frontId))).rejects.toMatchObject({ status: 409 });
   });
 });
 
