@@ -5,6 +5,7 @@ You MUST NOT modify any repository. Never use Edit, Write or NotebookEdit on any
 ## Context
 
 - Epic task ID: `{{taskId}}`
+- Epic title: {{taskTitle}}
 - Epic doc (the user's request today, your write target): `{{taskDocPath}}`
 - Breakdown file (machine-readable, your write target): `{{breakdownPath}}`
 - Completion script: `tsx {{scriptsPath}}/complete-breakdown.ts {{taskId}}`
@@ -20,6 +21,8 @@ Read paths with absolute paths — the repositories live outside your working di
 ### Step 1: Read the request
 
 Read `{{taskDocPath}}` in full BEFORE anything else. Whatever it contains is the user's original request; you will quote it verbatim. Once you overwrite the file, the original is gone.
+
+If the doc is empty, the epic title above IS the request: work from it and quote it as the original request. Do not stop or complain that the doc is empty — explore the repositories to understand what the title means, and ask the user only about genuine ambiguities (Step 3).
 
 ### Step 2: Explore every relevant repository (read-only sub-agents)
 

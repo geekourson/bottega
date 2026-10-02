@@ -125,7 +125,7 @@ const PROMPT_DEFINITIONS: PromptDefinition[] = [
     label: 'Epic Breakdown (multi-repo)',
     kind: 'prompt',
     file: 'breakdown.md',
-    variables: ['taskDocPath', 'taskId', 'breakdownPath', 'childProjects', 'scriptsPath'],
+    variables: ['taskDocPath', 'taskId', 'taskTitle', 'breakdownPath', 'childProjects', 'scriptsPath'],
   },
 ];
 

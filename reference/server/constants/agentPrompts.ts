@@ -293,6 +293,7 @@ export async function generateBreakdownMessage(
   taskDocPath: string,
   taskId: number,
   umbrellaProjectId: number,
+  taskTitle: string | null,
 ): Promise<string> {
   const children = epicsDb.getChildProjects(umbrellaProjectId);
   const childProjects =
@@ -310,6 +311,7 @@ export async function generateBreakdownMessage(
     {
       taskDocPath,
       taskId,
+      taskTitle: taskTitle?.trim() || '_(untitled)_',
       breakdownPath: getEpicBreakdownPath(umbrellaProjectId, taskId),
       childProjects,
       scriptsPath: SCRIPTS_DIR,

@@ -51,6 +51,7 @@ import { getEpicBreakdownPath, readTaskDoc } from './documentation.js';
 import { createWorktree, removeWorktree } from './worktree.js';
 import { startAgentRun } from './agentRunner.js';
 import type { Breakdown } from '../../shared/schemas/epics.js';
+import { generateBreakdownMessage } from '../constants/agentPrompts.js';
 
 let userId: number;
 let seq = 0;
@@ -132,6 +133,20 @@ describe('schema / migrations', () => {
     const childTask = tasksDb.create(apiId, 'Child').id;
     expect(tasksDb.getWithProject(epicId)!.project_is_umbrella).toBe(1);
     expect(tasksDb.getWithProject(childTask)!.project_is_umbrella).toBe(0);
+  });
+});
+
+describe('breakdown prompt', () => {
+  it('gives the agent the epic title (the request when the doc is empty) and the child projects', async () => {
+    const { umbrellaId, apiId } = makeUmbrella();
+    const epicId = tasksDb.create(umbrellaId, 'Bulk edit interventions').id;
+
+    const message = await generateBreakdownMessage('/doc.md', epicId, umbrellaId, 'Bulk edit interventions');
+
+    expect(message).toContain('Epic title: Bulk edit interventions');
+    expect(message).toContain('If the doc is empty, the epic title above IS the request');
+    expect(message).toContain(`projectId \`${apiId}\``);
+    expect(message).toContain(`complete-breakdown.ts ${epicId}`);
   });
 });
 

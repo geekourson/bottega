@@ -143,7 +143,7 @@ export async function startAgentRun(
       message = await generateUxDesignMessage(taskDocPath, taskId, taskWithProject.project_id);
       break;
     case 'breakdown':
-      message = await generateBreakdownMessage(taskDocPath, taskId, taskWithProject.project_id);
+      message = await generateBreakdownMessage(taskDocPath, taskId, taskWithProject.project_id, taskWithProject.title);
       break;
     default:
       throw new Error(`Unknown agent type: ${agentType}`);
