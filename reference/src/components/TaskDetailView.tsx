@@ -1402,6 +1402,7 @@ Please:
                 <EpicPanel
                   epic={task}
                   isBreakdownRunning={agentRuns.some((r) => r.agent_type === 'breakdown' && r.status === 'running')}
+                  onRunBreakdown={() => onRunAgent('breakdown')}
                   className="flex-shrink-0 border-t-0 border-b"
                 />
               )}
@@ -1414,7 +1415,7 @@ Please:
                 placeholder="No task documentation yet. Click Edit to describe what needs to be done."
                 // Epics stack the epic panel above the doc: keep the editor readable
                 // instead of letting it shrink to nothing.
-                className={isEpic ? 'min-h-[240px] flex-shrink-0' : 'md:flex-1 md:min-h-0'}
+                className={isEpic ? 'min-h-[240px] flex-shrink-0 md:h-auto' : 'md:flex-1 md:min-h-0'}
               />
               {task.status === 'pending' && onUpdateTaskFlags && !isEpic && (
                 <div className="flex-shrink-0 flex gap-3 px-3 py-2 border-t border-border">

@@ -68,7 +68,7 @@ const subtask = (id: number, projectId: number, title: string, extra: Partial<Ta
 
 const approved: EpicOverviewResponse = {
   ...proposed,
-  epic: { ...epic, breakdown_approved: 1, status: 'in_progress' } as TaskRow,
+  epic: { ...epic, breakdown_approved: 1, status: 'in_progress' },
   subtasks: [
     { task: subtask(20, 2, 'PDF endpoint', { status: 'completed' }), project: { id: 2, name: 'api' }, dependsOn: [] },
     {
@@ -132,6 +132,37 @@ describe('EpicPanel', () => {
 
     fireEvent.click(screen.getByTitle("Open front's board"));
     expect(navigate).toHaveBeenCalledWith('/projects/3');
+  });
+
+  it('offers to run the breakdown agent when there is no breakdown yet', async () => {
+    const freshEpic = { ...epic, planification_complete: 0 } as TaskRow;
+    vi.mocked(api.epics.get).mockResolvedValue(
+      ok({ ...proposed, epic: freshEpic, breakdown: null, breakdownErrors: ['breakdown file not found: /x'] }),
+    );
+    const onRunBreakdown = vi.fn();
+    render(
+      <MemoryRouter>
+        <EpicPanel epic={freshEpic} isBreakdownRunning={false} onRunBreakdown={onRunBreakdown} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByTestId('run-breakdown'));
+    await waitFor(() => expect(onRunBreakdown).toHaveBeenCalled());
+  });
+
+  it('hides the run button while the umbrella has no child project', async () => {
+    const freshEpic = { ...epic, planification_complete: 0 } as TaskRow;
+    vi.mocked(api.epics.get).mockResolvedValue(
+      ok({ ...proposed, epic: freshEpic, childProjects: [], breakdown: null, breakdownErrors: ['breakdown file not found: /x'] }),
+    );
+    render(
+      <MemoryRouter>
+        <EpicPanel epic={freshEpic} isBreakdownRunning={false} onRunBreakdown={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText(/has no child projects yet/)).toBeInTheDocument();
+    expect(screen.queryByTestId('run-breakdown')).not.toBeInTheDocument();
   });
 
   it('shows validation errors of an invalid breakdown file', async () => {

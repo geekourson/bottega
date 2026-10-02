@@ -20,6 +20,7 @@ import {
   Hourglass,
   Layers,
   Loader2,
+  Play,
   RefreshCw,
 } from 'lucide-react';
 import { Button } from '../ui/button';
@@ -36,6 +37,8 @@ import type { TaskRow } from '../../../shared/types/db';
 export interface EpicPanelProps {
   epic: TaskRow;
   isBreakdownRunning: boolean;
+  /** Starts the breakdown agent (same path as the Agents section's Run). */
+  onRunBreakdown?: () => void | Promise<void>;
   className?: string;
 }
 
@@ -55,7 +58,7 @@ function excerpt(text: string, max = 220): string {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
-export default function EpicPanel({ epic, isBreakdownRunning, className }: EpicPanelProps) {
+export default function EpicPanel({ epic, isBreakdownRunning, onRunBreakdown, className }: EpicPanelProps) {
   const navigate = useNavigate();
   const { subscribe, unsubscribe } = useWebSocket();
   const { isTaskLive, liveTaskIds } = useTaskContext();
@@ -223,13 +226,47 @@ export default function EpicPanel({ epic, isBreakdownRunning, className }: EpicP
           errors={overview.breakdownErrors}
           hasRun={overview.epic.planification_complete === 1 || isBreakdownRunning}
           isRunning={isBreakdownRunning}
+          onRunBreakdown={overview.childProjects.length > 0 ? onRunBreakdown : undefined}
         />
       )}
     </div>
   );
 }
 
-function EmptyBreakdown({ errors, hasRun, isRunning }: { errors: string[]; hasRun: boolean; isRunning: boolean }) {
+function RunBreakdownButton({ onRun, label }: { onRun: () => void | Promise<void>; label: string }) {
+  const [isStarting, setIsStarting] = useState(false);
+  return (
+    <Button
+      size="sm"
+      className="gap-2"
+      disabled={isStarting}
+      onClick={async () => {
+        setIsStarting(true);
+        try {
+          await onRun();
+        } finally {
+          setIsStarting(false);
+        }
+      }}
+      data-testid="run-breakdown"
+    >
+      {isStarting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+      {label}
+    </Button>
+  );
+}
+
+function EmptyBreakdown({
+  errors,
+  hasRun,
+  isRunning,
+  onRunBreakdown,
+}: {
+  errors: string[];
+  hasRun: boolean;
+  isRunning: boolean;
+  onRunBreakdown?: (() => void | Promise<void>) | undefined;
+}) {
   if (isRunning) {
     return (
       <p className="text-sm text-muted-foreground flex items-center gap-2">
@@ -240,20 +277,26 @@ function EmptyBreakdown({ errors, hasRun, isRunning }: { errors: string[]; hasRu
   const missing = errors.length === 1 && errors[0]!.startsWith('breakdown file not found');
   if (!hasRun || missing) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Run the <span className="font-medium text-foreground">Breakdown</span> agent below: it reads every child
-        repository and proposes sub-tasks for you to approve.
-      </p>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+        <p className="text-sm text-muted-foreground flex-1">
+          The <span className="font-medium text-foreground">Breakdown</span> agent reads every child repository and
+          proposes sub-tasks for you to approve.
+        </p>
+        {onRunBreakdown && <RunBreakdownButton onRun={onRunBreakdown} label="Run Breakdown" />}
+      </div>
     );
   }
   return (
-    <div className="p-2 rounded-md bg-red-500/10 text-xs text-red-700 dark:text-red-300 space-y-1">
-      <p className="font-medium">The breakdown file is invalid — ask the breakdown agent to fix it:</p>
-      <ul className="list-disc pl-4">
-        {errors.map((e) => (
-          <li key={e}>{e}</li>
-        ))}
-      </ul>
+    <div className="space-y-2">
+      <div className="p-2 rounded-md bg-red-500/10 text-xs text-red-700 dark:text-red-300 space-y-1">
+        <p className="font-medium">The breakdown file is invalid — ask the breakdown agent to fix it:</p>
+        <ul className="list-disc pl-4">
+          {errors.map((e) => (
+            <li key={e}>{e}</li>
+          ))}
+        </ul>
+      </div>
+      {onRunBreakdown && <RunBreakdownButton onRun={onRunBreakdown} label="Run Breakdown again" />}
     </div>
   );
 }
